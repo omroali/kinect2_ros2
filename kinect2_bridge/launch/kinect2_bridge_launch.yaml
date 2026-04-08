@@ -4,6 +4,10 @@ launch:
     name: "base_name"
     default: "kinect2"
 
+- arg:
+    name: "publish_world_frame"
+    default: "true"
+
 - node:
     pkg: "kinect2_bridge"
     exec: "kinect2_bridge_node"
@@ -51,28 +55,34 @@ launch:
         - name: "worker_threads"  
           value: 4
 
-# - node:
-#     pkg: "depth_image_proc"
-#     exec: "point_cloud_xyzrgb_node"
-#     name: "$(var base_name)_points_xyzrgb_sd"
-#     remap:
-#     -
-#       from: "rgb/camera_info"
-#       to: "/$(var base_name)/sd/camera_info"
-#     -
-#       from: "rgb/image_rect_color"
-#       to: "/$(var base_name)/sd/image_color_rect"
-#     -
-#       from: "depth_registered/image_rect"
-#       to: "/$(var base_name)/sd/image_depth_rect"
-#     -
-#       from: "points"
-#       to: "/$(var base_name)/sd/points"
+- node:
+    pkg: "depth_image_proc"
+    exec: "point_cloud_xyzrgb_node"
+    name: "$(var base_name)_points_xyzrgb_sd"
+    param:
+        - name: "queue_size"
+          value: 30
+    remap:
+    -
+      from: "rgb/camera_info"
+      to: "/$(var base_name)/sd/camera_info"
+    -
+      from: "rgb/image_rect_color"
+      to: "/$(var base_name)/sd/image_color_rect"
+    -
+      from: "depth_registered/image_rect"
+      to: "/$(var base_name)/sd/image_depth_rect"
+    -
+      from: "points"
+      to: "/$(var base_name)/sd/points"
 
 - node:
     pkg: "depth_image_proc"
     exec: "point_cloud_xyzrgb_node"
     name: "$(var base_name)_points_xyzrgb_qhd"
+    param:
+        - name: "queue_size"
+          value: 30
     remap:
     -
       from: "rgb/camera_info"
@@ -104,3 +114,11 @@ launch:
 #     -
 #       from: "points"
 #       to: "/$(var base_name)/hd/points"
+
+# Publish world frame as root of TF tree
+- node:
+    pkg: "tf2_ros"
+    exec: "static_transform_publisher"
+    name: "world_frame_publisher"
+    args: "--frame-id map --child-frame-id $(var base_name)_link --x 0.0 --y 0.0 --z 0.0 --roll 0.0 --pitch 0.0 --yaw 0.0"
+    if: "$(var publish_world_frame)"

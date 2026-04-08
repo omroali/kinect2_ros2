@@ -9,6 +9,7 @@ add_definitions(-DK2_CALIB_PATH="${PROJECT_SOURCE_DIR}/data/")
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 find_package(rclcpp REQUIRED)
@@ -29,14 +30,14 @@ target_link_libraries(${PROJECT_NAME}_node freenect2)
 
 include_directories(include/kinect2_bridge)
 
-ament_target_dependencies(${PROJECT_NAME}_node 
-                          rclcpp 
-                          OpenCV 
-                          kinect2_registration 
-                          tf2 
-                          tf2_ros 
+ament_target_dependencies(${PROJECT_NAME}_node
+                          rclcpp
+                          OpenCV
+                          kinect2_registration
+                          tf2
+                          tf2_ros
                           tf2_geometry_msgs
-                          sensor_msgs 
+                          sensor_msgs
                           geometry_msgs)
 
 if(BUILD_TESTING)
@@ -62,6 +63,12 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/
 )
 
+# Install Python scripts
+install(PROGRAMS
+  scripts/dynamic_camera_tf.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(
   DIRECTORY "include/"
   DESTINATION include
@@ -69,4 +76,3 @@ install(
 
 ament_export_include_directories(include/)
 ament_package()
-

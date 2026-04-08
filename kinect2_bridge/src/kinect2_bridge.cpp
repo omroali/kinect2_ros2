@@ -1478,13 +1478,15 @@ private:
                        rotation.at<double>(1, 0), rotation.at<double>(1, 1), rotation.at<double>(1, 2),
                        rotation.at<double>(2, 0), rotation.at<double>(2, 1), rotation.at<double>(2, 2));
 
-    tf2::Quaternion qZero;
-    qZero.setRPY(0, 0, 0);
+    // Rotation from link frame (X forward, Y left, Z up) to optical frame (Z forward, X right, Y down)
+    // This is the standard ROS convention for camera optical frames
+    tf2::Quaternion qOptical;
+    qOptical.setRPY(-M_PI_2, 0, -M_PI_2);
     tf2::Vector3 trans(translation.at<double>(0), translation.at<double>(1), translation.at<double>(2));
     tf2::Vector3 vZero(0, 0, 0);
-    tf2::Transform tIr(rot, trans), tZero(qZero, vZero);
+    tf2::Transform tIr(rot, trans), tOptical(qOptical, vZero);
 
-    stColorOpt.transform = tf2::toMsg(tZero);
+    stColorOpt.transform = tf2::toMsg(tOptical);
     stColorOpt.header.stamp = now;
     stColorOpt.child_frame_id = baseNameTF + K2_TF_RGB_OPT_FRAME;
     stColorOpt.header.frame_id = baseNameTF + K2_TF_LINK;
