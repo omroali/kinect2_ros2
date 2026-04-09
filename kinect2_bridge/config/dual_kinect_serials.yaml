@@ -1,0 +1,20 @@
+# Dual Kinect v2 Serial Number Configuration
+#
+# Serial-to-namespace mapping:
+#   kinect2_1 → 001934470647  (reliable first-device; opened at t=0)
+#   kinect2_2 → 007425354147  (opened second after 5-second delay)
+#
+# NOTE: 007425354147 must be opened second due to USB initialisation
+# ordering constraints.  The 5-second TimerAction delay in
+# dual_kinect2_simple.launch.py handles this automatically.
+#
+# If cameras are reassigned to different USB ports, re-detect serials with:
+#   lsusb -v -d 045e:02c4 2>/dev/null | grep iSerial
+
+/kinect2_1/kinect2_bridge:
+  ros__parameters:
+    sensor: "001934470647"
+
+/kinect2_2/kinect2_bridge:
+  ros__parameters:
+    sensor: "007425354147"
