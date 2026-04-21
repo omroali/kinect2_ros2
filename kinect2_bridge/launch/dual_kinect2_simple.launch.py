@@ -44,6 +44,7 @@
 
 import os
 import yaml
+import xacro
 
 from ament_index_python.packages import get_package_share_directory
 
@@ -51,6 +52,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch.conditions import IfCondition
 
 
 # ─────────────────────────────────────────────────────────────────── #
@@ -126,6 +128,7 @@ def launch_setup(context, *args, **kwargs):
     ns2       = LaunchConfiguration("camera2_namespace").perform(context)
     do_tf_str = LaunchConfiguration("publish_transforms").perform(context)
     do_tf     = do_tf_str.lower() in ("true", "1", "yes")
+    do_rviz   = LaunchConfiguration("launch_rviz").perform(context).lower() in ("true", "1", "yes")
 
     # ── Locate installed config files ──────────────────────────────── #
     pkg_share  = get_package_share_directory("kinect2_bridge")
@@ -148,6 +151,33 @@ def launch_setup(context, *args, **kwargs):
     serials = _load_serials(serials_path)
     cam     = _load_camera_config(cam_config_path)
 
+    # ── Process sensor model xacro ─────────────────────────────────── #
+    #
+    # Inject positions from camera_config.yaml as xacro mappings so the
+    # URDF is generated with the correct poses at launch time.
+    # robot_state_publisher will:
+    #   • broadcast the fixed TF transforms (replaces static_transform_publisher)
+    #   • publish /robot_description (consumed by RViz RobotModel display)
+    #
+    xacro_path = os.path.join(pkg_share, "urdf", "kinect2_sensor.urdf.xacro")
+    urdf = xacro.process_file(xacro_path, mappings={
+        "world_frame": cam["world_frame"],
+        "cam1_frame":  cam["cam1_frame"],
+        "cam1_x":      cam["cam1_x"],
+        "cam1_y":      cam["cam1_y"],
+        "cam1_z":      cam["cam1_z"],
+        "cam1_roll":   cam["cam1_roll"],
+        "cam1_pitch":  cam["cam1_pitch"],
+        "cam1_yaw":    cam["cam1_yaw"],
+        "cam2_frame":  cam["cam2_frame"],
+        "cam2_x":      cam["cam2_x"],
+        "cam2_y":      cam["cam2_y"],
+        "cam2_z":      cam["cam2_z"],
+        "cam2_roll":   cam["cam2_roll"],
+        "cam2_pitch":  cam["cam2_pitch"],
+        "cam2_yaw":    cam["cam2_yaw"],
+    }).toxml()
+
     serial1 = serials.get(ns1, "")
     serial2 = serials.get(ns2, "")
 
@@ -166,11 +196,17 @@ def launch_setup(context, *args, **kwargs):
     # the TF root frame  kinect2_N_link, which our static publishers
     # connect to the world frame.
     #
+    # depth_method="opengl": explicitly use the OpenGL depth processor.
+    # "default" picks OpenCL first (compiled in), but the NVIDIA OpenCL ICD
+    # is not available inside the container, causing CL_PLATFORM_NOT_FOUND
+    # (-1001). libfreenect2 does not fall back gracefully — it initialises
+    # null buffers and silently drops every depth packet. OpenGL is compiled
+    # in and works correctly via the X11 display forwarded into the container.
     _bridge_common = dict(
         publish_tf=True,
         fps_limit=30.0,
         use_png=False,
-        depth_method="default",
+        depth_method="opengl",
         reg_method="default",
         max_depth=12.0,
         min_depth=0.1,
@@ -239,8 +275,17 @@ def launch_setup(context, *args, **kwargs):
     # SD  resolution  512 × 424  — depth-registered colour + depth rect
     # QHD resolution  960 × 540  — same at quarter-HD scale
     #
+    # point_cloud_resolution controls which resolutions get a point cloud node.
+    # "qhd"     → 1 node per camera  (960×540,  default — lowest CPU cost)
+    # "sd"      → 1 node per camera  (512×424,  depth-native resolution)
+    # "qhd,sd"  → 2 nodes per camera (both resolutions, highest CPU cost)
+    pc_res_arg   = LaunchConfiguration("point_cloud_resolution").perform(context)
+    pc_res_list  = [r.strip() for r in pc_res_arg.split(",") if r.strip() in ("sd", "qhd")]
+    if not pc_res_list:
+        pc_res_list = ["qhd"]   # safe fallback
+
     for ns in (ns1, ns2):
-        for res in ("sd", "qhd"):
+        for res in pc_res_list:
             nodes.append(Node(
                 package="depth_image_proc",
                 executable="point_cloud_xyzrgb_node",
@@ -258,47 +303,41 @@ def launch_setup(context, *args, **kwargs):
                 ],
             ))
 
-    # ── Static TF publishers ───────────────────────────────────────── #
+    # ── Sensor model + TF ──────────────────────────────────────────── #
     #
-    # Publishes:
-    #   map → kinect2_1_link   (positions from camera_config.yaml)
-    #   map → kinect2_2_link
+    # robot_state_publisher serves two roles:
+    #   1. Broadcasts fixed TF transforms from the URDF joints
+    #      (map → kinect2_1_link, map → kinect2_2_link)
+    #      — replaces the two static_transform_publisher nodes.
+    #   2. Publishes /robot_description so RViz can render the
+    #      physical sensor box models via the RobotModel display.
     #
-    # The bridge's publishStaticTF() then extends the tree:
-    #   kinect2_1_link → kinect2_1_rgb_optical_frame
-    #   kinect2_1_rgb_optical_frame → kinect2_1_ir_optical_frame
+    # The bridge's publishStaticTF() extends the tree further:
+    #   kinect2_N_link → kinect2_N_rgb_optical_frame
+    #   kinect2_N_rgb_optical_frame → kinect2_N_ir_optical_frame
     #
     if do_tf:
         nodes.append(Node(
-            package="tf2_ros",
-            executable="static_transform_publisher",
-            name="camera1_tf_publisher",
-            arguments=[
-                "--frame-id",       cam["world_frame"],
-                "--child-frame-id", cam["cam1_frame"],
-                "--x",              cam["cam1_x"],
-                "--y",              cam["cam1_y"],
-                "--z",              cam["cam1_z"],
-                "--roll",           cam["cam1_roll"],
-                "--pitch",          cam["cam1_pitch"],
-                "--yaw",            cam["cam1_yaw"],
-            ],
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            name="kinect_model_publisher",
+            output="screen",
+            parameters=[{
+                "robot_description": urdf,
+                "use_sim_time":      False,
+            }],
         ))
 
+    # ── Optional RViz ──────────────────────────────────────────────── #
+    if do_rviz:
+        rviz_config = os.path.join(pkg_share, "launch", "kinect_viz.rviz")
+        rviz_args   = ["-d", rviz_config] if os.path.isfile(rviz_config) else []
         nodes.append(Node(
-            package="tf2_ros",
-            executable="static_transform_publisher",
-            name="camera2_tf_publisher",
-            arguments=[
-                "--frame-id",       cam["world_frame"],
-                "--child-frame-id", cam["cam2_frame"],
-                "--x",              cam["cam2_x"],
-                "--y",              cam["cam2_y"],
-                "--z",              cam["cam2_z"],
-                "--roll",           cam["cam2_roll"],
-                "--pitch",          cam["cam2_pitch"],
-                "--yaw",            cam["cam2_yaw"],
-            ],
+            package="rviz2",
+            executable="rviz2",
+            name="rviz2",
+            output="screen",
+            arguments=rviz_args,
         ))
 
     return nodes
@@ -335,6 +374,24 @@ def generate_launch_description():
                 "Publish static TF transforms from world_frame (map) to each "
                 "camera link frame. Positions are read from camera_config.yaml. "
                 "Set to 'false' if you provide transforms externally."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "launch_rviz",
+            default_value="true",
+            description=(
+                "Open RViz with kinect_viz.rviz automatically. "
+                "Set to 'false' to run headless or manage RViz separately."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "point_cloud_resolution",
+            default_value="qhd",
+            description=(
+                "Comma-separated list of resolutions for which to generate point clouds. "
+                "Valid values: 'qhd' (960×540), 'sd' (512×424). "
+                "Default 'qhd' runs 1 depth_image_proc node per camera (lowest CPU). "
+                "Use 'qhd,sd' for both resolutions (2 nodes per camera)."
             ),
         ),
         OpaqueFunction(function=launch_setup),

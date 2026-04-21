@@ -6,26 +6,26 @@ camera1:
   enabled: true
   frame: kinect2_1_link
   position:
-    x: 3.72
-    y: 1.18
-    z: 0.706
+    x: 2.84
+    y: -0.0897
+    z: 0.986
   orientation:
     roll: 0.0
     pitch: 0.0
-    yaw: 0.0
+    yaw: 3.14
 
 # Camera 2 Configuration
 camera2:
   enabled: true
   frame: kinect2_2_link
   position:
-    x: 3.72
-    y: 1.18
-    z: 0.706
+    x: -0.427
+    y: 3.01
+    z: 0.998
   orientation:
     roll: 0.0
     pitch: 0.0
-    yaw: -0.5236  # -30 degrees
+    yaw: -1.57  # -90 degrees
 
 # World frame (parent of all cameras)
 world_frame: map

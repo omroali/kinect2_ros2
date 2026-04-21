@@ -1,0 +1,48 @@
+# Unified multi-camera configuration for multi_kinect_simple.launch.py
+#
+# One camera entry = one Kinect pipeline (bridge + point cloud + optional TF).
+# Add/remove camera blocks under `cameras:` to scale sensor count.
+
+world_frame: map
+
+cameras:
+  kinect2_1:
+    serial: "001934470647"
+    enabled: true
+    frame: kinect2_1_link
+    position:
+      x: 3.201
+      y: 0.01
+      z: 0.99
+    orientation:
+      roll: 0.0
+      pitch: 0.0
+      yaw: 3.14
+
+  kinect2_2:
+    serial: "007425354147"
+    enabled: true
+    frame: kinect2_2_link
+    position:
+      x: -0.403
+      y: 3.02
+      z: 1.00
+    orientation:
+      roll: 0.0
+      pitch: 0.0
+      yaw: -1.57
+
+# Example additional sensors:
+#  kinect2_3:
+#    serial: "XXXXXXXXXXXX"
+#    enabled: true
+#    frame: kinect2_3_link
+#    position: {x: 0.0, y: 0.0, z: 1.0}
+#    orientation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+#
+#  kinect2_4:
+#    serial: "YYYYYYYYYYYY"
+#    enabled: true
+#    frame: kinect2_4_link
+#    position: {x: 1.0, y: 0.0, z: 1.0}
+#    orientation: {roll: 0.0, pitch: 0.0, yaw: 1.57}

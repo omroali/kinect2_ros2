@@ -1,0 +1,227 @@
+<?xml version="1.0"?>
+<!--
+  kinect2_sensor.urdf.xacro
+  ═════════════════════════
+  URDF/xacro description for the dual Kinect v2 camera setup.
+
+  Positions and frame names are supplied as xacro:arg values so that the
+  launch file can inject them directly from camera_config.yaml — keeping
+  the config file as the single source of truth.
+
+  Physical model
+  ──────────────
+  Each sensor is built from 7 visual boxes:
+    1. Main body          — near-black rectangular bar  249 × 67 × 66 mm
+    2. Front face panel   — thin lighter slab on the +X face (facing direction)
+    3. Top label stripe   — light grey strip on the top surface
+    4. IR emitter window  — small dark square, left of centre on the front face
+    5. RGB camera window  — small dark square, centre of the front face
+    6. Depth sensor window— small dark square, right of centre on the front face
+    7. Accent strip       — coloured strip along the bottom front edge
+                            (unique per camera for easy visual identification)
+
+  ROS camera convention: +X forward (= direction the lens faces).
+  The box is therefore KV2_D (67 mm) along X, KV2_W (249 mm) along Y,
+  KV2_H (66 mm) along Z.
+
+  Usage
+  ─────
+  Processed by the launch file via xacro.process_file(path, mappings={...})
+  Do not run standalone — the arg defaults are zeros and will stack the
+  cameras on top of each other.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="kinect2_cameras">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--  Scene-level arguments                                          -->
+  <!--  Injected by dual_kinect2_simple.launch.py from                -->
+  <!--  camera_config.yaml via xacro.process_file mappings.           -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <xacro:arg name="world_frame"  default="map"/>
+
+  <!-- Camera 1 -->
+  <xacro:arg name="cam1_frame"   default="kinect2_1_link"/>
+  <xacro:arg name="cam1_x"       default="0.0"/>
+  <xacro:arg name="cam1_y"       default="0.0"/>
+  <xacro:arg name="cam1_z"       default="0.0"/>
+  <xacro:arg name="cam1_roll"    default="0.0"/>
+  <xacro:arg name="cam1_pitch"   default="0.0"/>
+  <xacro:arg name="cam1_yaw"     default="0.0"/>
+
+  <!-- Camera 2 -->
+  <xacro:arg name="cam2_frame"   default="kinect2_2_link"/>
+  <xacro:arg name="cam2_x"       default="0.0"/>
+  <xacro:arg name="cam2_y"       default="0.0"/>
+  <xacro:arg name="cam2_z"       default="0.0"/>
+  <xacro:arg name="cam2_roll"    default="0.0"/>
+  <xacro:arg name="cam2_pitch"   default="0.0"/>
+  <xacro:arg name="cam2_yaw"     default="0.0"/>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--  Physical constants (metres)                                    -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <xacro:property name="KV2_W"  value="0.249"/>  <!-- width  Y -->
+  <xacro:property name="KV2_H"  value="0.066"/>  <!-- height Z -->
+  <xacro:property name="KV2_D"  value="0.067"/>  <!-- depth  X -->
+
+  <!-- Half-dimensions (used for face/stripe offsets) -->
+  <xacro:property name="KV2_HW" value="${KV2_W/2}"/>
+  <xacro:property name="KV2_HH" value="${KV2_H/2}"/>
+  <xacro:property name="KV2_HD" value="${KV2_D/2}"/>
+
+  <!-- Lens window size -->
+  <xacro:property name="LENS_S" value="0.028"/>
+
+  <!-- Face panel thickness -->
+  <xacro:property name="FACE_T" value="0.003"/>
+
+  <!-- Top stripe height -->
+  <xacro:property name="STRIPE_H" value="0.008"/>
+
+  <!-- Accent strip height -->
+  <xacro:property name="ACCENT_H" value="0.006"/>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--  Colour palette                                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <xacro:property name="COL_BODY"   value="0.13 0.13 0.13 1.0"/>
+  <xacro:property name="COL_FACE"   value="0.22 0.22 0.22 1.0"/>
+  <xacro:property name="COL_LENS"   value="0.05 0.05 0.08 1.0"/>
+  <xacro:property name="COL_STRIPE" value="0.60 0.60 0.60 1.0"/>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--  Macro: kinect2_sensor                                          -->
+  <!--                                                                 -->
+  <!--  Parameters                                                     -->
+  <!--    link_name   — URDF link name (= TF frame, e.g. kinect2_1_link) -->
+  <!--    parent      — parent link name (= world_frame, e.g. map)    -->
+  <!--    x y z       — translation from parent (metres)              -->
+  <!--    roll pitch yaw — rotation from parent (radians)             -->
+  <!--    acc_r acc_g acc_b — RGB accent colour (0–1 floats)          -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <xacro:macro name="kinect2_sensor"
+               params="link_name parent
+                       x y z roll pitch yaw
+                       acc_r acc_g acc_b">
+
+    <!-- Fixed joint: parent frame → sensor link -->
+    <joint name="${parent}_to_${link_name}" type="fixed">
+      <parent link="${parent}"/>
+      <child  link="${link_name}"/>
+      <origin xyz="${x} ${y} ${z}" rpy="${roll} ${pitch} ${yaw}"/>
+    </joint>
+
+    <link name="${link_name}">
+
+      <!-- 1. Main body ─────────────────────────────────────────────── -->
+      <visual name="${link_name}_body">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${KV2_D} ${KV2_W} ${KV2_H}"/>
+        </geometry>
+        <material name="${link_name}_mat_body">
+          <color rgba="${COL_BODY}"/>
+        </material>
+      </visual>
+
+      <!-- 2. Front face panel (sits flush on +X face) ──────────────── -->
+      <visual name="${link_name}_face">
+        <origin xyz="${KV2_HD + FACE_T/2} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${FACE_T} ${KV2_W} ${KV2_H}"/>
+        </geometry>
+        <material name="${link_name}_mat_face">
+          <color rgba="${COL_FACE}"/>
+        </material>
+      </visual>
+
+      <!-- 3. Top label stripe ─────────────────────────────────────── -->
+      <visual name="${link_name}_stripe">
+        <origin xyz="0 0 ${KV2_HH - STRIPE_H/2}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${KV2_D * 0.85} ${KV2_W * 0.92} ${STRIPE_H}"/>
+        </geometry>
+        <material name="${link_name}_mat_stripe">
+          <color rgba="${COL_STRIPE}"/>
+        </material>
+      </visual>
+
+      <!-- 4. IR emitter window — left of centre (+Y side) ──────────── -->
+      <visual name="${link_name}_ir">
+        <origin xyz="${KV2_HD + FACE_T + 0.001} ${KV2_W * 0.33} 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.002 ${LENS_S} ${LENS_S}"/>
+        </geometry>
+        <material name="${link_name}_mat_ir">
+          <color rgba="${COL_LENS}"/>
+        </material>
+      </visual>
+
+      <!-- 5. RGB camera window — centre ────────────────────────────── -->
+      <visual name="${link_name}_rgb">
+        <origin xyz="${KV2_HD + FACE_T + 0.001} 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.002 ${LENS_S} ${LENS_S}"/>
+        </geometry>
+        <material name="${link_name}_mat_rgb">
+          <color rgba="${COL_LENS}"/>
+        </material>
+      </visual>
+
+      <!-- 6. Depth sensor window — right of centre (-Y side) ────────── -->
+      <visual name="${link_name}_depth">
+        <origin xyz="${KV2_HD + FACE_T + 0.001} ${-KV2_W * 0.33} 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.002 ${LENS_S} ${LENS_S}"/>
+        </geometry>
+        <material name="${link_name}_mat_depth">
+          <color rgba="${COL_LENS}"/>
+        </material>
+      </visual>
+
+      <!-- 7. Accent strip — unique colour per camera ────────────────── -->
+      <visual name="${link_name}_accent">
+        <origin xyz="${KV2_HD - 0.005} 0 ${-(KV2_HH - ACCENT_H/2)}" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.010 ${KV2_W * 0.95} ${ACCENT_H}"/>
+        </geometry>
+        <material name="${link_name}_mat_accent">
+          <color rgba="${acc_r} ${acc_g} ${acc_b} 1.0"/>
+        </material>
+      </visual>
+
+    </link>
+  </xacro:macro>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--  Scene: world anchor + camera instances                         -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- World / map anchor link -->
+  <link name="$(arg world_frame)"/>
+
+  <!-- Camera 1 — blue accent -->
+  <xacro:kinect2_sensor
+    link_name="$(arg cam1_frame)"
+    parent="$(arg world_frame)"
+    x="$(arg cam1_x)"  y="$(arg cam1_y)"  z="$(arg cam1_z)"
+    roll="$(arg cam1_roll)"  pitch="$(arg cam1_pitch)"  yaw="$(arg cam1_yaw)"
+    acc_r="0.20"  acc_g="0.45"  acc_b="0.80"/>
+
+  <!-- Camera 2 — orange accent -->
+  <xacro:kinect2_sensor
+    link_name="$(arg cam2_frame)"
+    parent="$(arg world_frame)"
+    x="$(arg cam2_x)"  y="$(arg cam2_y)"  z="$(arg cam2_z)"
+    roll="$(arg cam2_roll)"  pitch="$(arg cam2_pitch)"  yaw="$(arg cam2_yaw)"
+    acc_r="0.80"  acc_g="0.35"  acc_b="0.15"/>
+
+</robot>
