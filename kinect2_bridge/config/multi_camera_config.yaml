@@ -2,6 +2,16 @@
 #
 # One camera entry = one Kinect pipeline (bridge + point cloud + optional TF).
 # Add/remove camera blocks under `cameras:` to scale sensor count.
+#
+# Optional per-camera point cloud distance filter (Z-axis):
+#   point_cloud_filter:
+#     min_distance: 0.0    # metres, filters closer than this (0.0 = no near-clipping)
+#     max_distance: 5.0    # metres, filters farther than this (large value = no far-clipping)
+#
+# Launch parameters can override these defaults:
+#   ros2 launch ... point_cloud_filter_min_distance:=0.5 point_cloud_filter_max_distance:=3.0
+#
+# Per-camera settings override launch parameters if present.
 
 world_frame: map
 
@@ -11,26 +21,44 @@ cameras:
     enabled: true
     frame: kinect2_1_link
     position:
-      x: 3.201
-      y: 0.01
-      z: 0.99
+      x: 2.180622097845552
+      y: 0.5244930179473146
+      z: 0.9542954810090617
     orientation:
-      roll: 0.0
-      pitch: 0.0
-      yaw: 3.14
+      roll: -0.028268183752626894
+      pitch: -0.10526059889219368
+      yaw: -0.17619952136934408
+    calibration:
+      vicon_object: KinectV2_1
+      marker_to_link_offset:
+        x: 0.0
+        y: 0.0
+        z: -0.03925
+    point_cloud_filter:
+      min_distance: 0.0
+      max_distance: 2.0
 
   kinect2_2:
     serial: "007425354147"
     enabled: true
     frame: kinect2_2_link
     position:
-      x: -0.403
-      y: 3.02
-      z: 1.00
+      x: 1.7250229003607818
+      y: 0.38321394828841027
+      z: 0.9689872099394938
     orientation:
-      roll: 0.0
-      pitch: 0.0
-      yaw: -1.57
+      roll: 0.01363704819092533
+      pitch: -0.09112338017412161
+      yaw: -1.9911738653058177
+    calibration:
+      vicon_object: KinectV2_2
+      marker_to_link_offset:
+        x: 0.0
+        y: 0.0
+        z: -0.03925
+    point_cloud_filter:
+      min_distance: 0.0
+      max_distance: 2.0
 
 # Example additional sensors:
 #  kinect2_3:
@@ -46,3 +74,16 @@ cameras:
 #    frame: kinect2_4_link
 #    position: {x: 1.0, y: 0.0, z: 1.0}
 #    orientation: {roll: 0.0, pitch: 0.0, yaw: 1.57}
+#
+# Vicon auto-calibration fields (optional per camera):
+#   calibration:
+#     vicon_object: KinectV2_1        # maps to /vicon/markers/<vicon_object>/Top1..Top4
+#     marker_to_link_offset:
+#       x: 0.0                        # metres, marker-frame forward axis
+#       y: 0.0                        # metres, marker-frame left axis
+#       z: -0.03925                   # metres, marker-frame up axis (initial guess)
+#
+# Axis conventions used by vicon_marker_calibration_tf.py:
+#   forward = Top1 -> Top2
+#   camera-left = Top4 -> Top3
+#   up = forward x camera-left

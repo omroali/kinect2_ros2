@@ -78,7 +78,7 @@ def _load_unified_config(unified_path: str):
         pos = c.get("position", {}) if isinstance(c.get("position", {}), dict) else {}
         ori = c.get("orientation", {}) if isinstance(c.get("orientation", {}), dict) else {}
 
-        entries.append({
+        entry = {
             "namespace": str(ns),
             "serial": serial,
             "enabled": bool(c.get("enabled", True)),
@@ -89,7 +89,13 @@ def _load_unified_config(unified_path: str):
             "roll": str(float(ori.get("roll", 0.0))),
             "pitch": str(float(ori.get("pitch", 0.0))),
             "yaw": str(float(ori.get("yaw", 0.0))),
-        })
+        }
+        
+        # Preserve point cloud filter config if present
+        if "point_cloud_filter" in c and isinstance(c["point_cloud_filter"], dict):
+            entry["point_cloud_filter"] = c["point_cloud_filter"]
+        
+        entries.append(entry)
 
     return world_frame, entries
 
@@ -150,6 +156,8 @@ def launch_setup(context, *args, **kwargs):
     launch_rviz = LaunchConfiguration("launch_rviz").perform(context).lower() in ("true", "1", "yes")
     delay_step = float(LaunchConfiguration("launch_delay_sec").perform(context))
     depth_method = LaunchConfiguration("depth_method").perform(context)
+    pc_filter_min_dist = float(LaunchConfiguration("point_cloud_filter_min_distance").perform(context))
+    pc_filter_max_dist = float(LaunchConfiguration("point_cloud_filter_max_distance").perform(context))
 
     pc_res_arg = LaunchConfiguration("point_cloud_resolution").perform(context)
     pc_res_list = [r.strip() for r in pc_res_arg.split(",") if r.strip() in ("sd", "qhd")]
@@ -180,7 +188,7 @@ def launch_setup(context, *args, **kwargs):
     if not use_unified:
         for i, (ns, serial) in enumerate(serial_entries):
             c = _camera_cfg_for(ns, i, cam_cfg)
-            camera_entries.append({
+            entry = {
                 "namespace": ns,
                 "serial": serial,
                 "enabled": c["enabled"],
@@ -191,7 +199,15 @@ def launch_setup(context, *args, **kwargs):
                 "roll": c["roll"],
                 "pitch": c["pitch"],
                 "yaw": c["yaw"],
-            })
+            }
+            
+            # Preserve point cloud filter config if present in legacy format
+            cameras_map = cam_cfg.get("cameras", {}) if isinstance(cam_cfg.get("cameras", {}), dict) else {}
+            if ns in cameras_map and isinstance(cameras_map[ns], dict):
+                if "point_cloud_filter" in cameras_map[ns]:
+                    entry["point_cloud_filter"] = cameras_map[ns]["point_cloud_filter"]
+            
+            camera_entries.append(entry)
 
     for i, c in enumerate(camera_entries):
         ns = c["namespace"]
@@ -230,23 +246,50 @@ def launch_setup(context, *args, **kwargs):
                 ],
             ))
 
+            # Optional: Point cloud distance filter (depth-based crop for human activity recognition)
+            # Subscribes to /{ns}/{res}/points and publishes /{ns}/{res}/points_filtered
+            # Per-camera overrides can be set in multi_camera_config.yaml under camera.point_cloud_filter.
+            filter_min = pc_filter_min_dist
+            filter_max = pc_filter_max_dist
+            if "point_cloud_filter" in c and isinstance(c["point_cloud_filter"], dict):
+                filter_min = float(c["point_cloud_filter"].get("min_distance", pc_filter_min_dist))
+                filter_max = float(c["point_cloud_filter"].get("max_distance", pc_filter_max_dist))
+            
+            nodes.append(Node(
+                package="pcl_ros",
+                executable="filter_passthrough_node",
+                name=f"{ns}_points_filter_{res}",
+                namespace=ns,
+                output="screen",
+                parameters=[{
+                    "filter_type": "passthrough",
+                    "filter_field_name": "z",
+                    "filter_limit_min": filter_min,
+                    "filter_limit_max": filter_max,
+                }],
+                remappings=[
+                    ("input", f"{res}/points"),
+                    ("output", f"{res}/points_filtered"),
+                ],
+            ))
+
         if publish_tf and c["enabled"]:
-                nodes.append(Node(
-                    package="tf2_ros",
-                    executable="static_transform_publisher",
-                    name=f"{ns}_map_tf",
-                    output="screen",
-                    arguments=[
-                        "--frame-id", world_frame,
-                        "--child-frame-id", c["frame"],
-                        "--x", c["x"],
-                        "--y", c["y"],
-                        "--z", c["z"],
-                        "--roll", c["roll"],
-                        "--pitch", c["pitch"],
-                        "--yaw", c["yaw"],
-                    ],
-                ))
+            nodes.append(Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                name=f"{ns}_map_tf",
+                output="screen",
+                arguments=[
+                    "--frame-id", world_frame,
+                    "--child-frame-id", c["frame"],
+                    "--x", c["x"],
+                    "--y", c["y"],
+                    "--z", c["z"],
+                    "--roll", c["roll"],
+                    "--pitch", c["pitch"],
+                    "--yaw", c["yaw"],
+                ],
+            ))
 
     if launch_rviz:
         rviz_config = os.path.join(pkg_share, "launch", "kinect_viz.rviz")
@@ -306,6 +349,16 @@ def generate_launch_description():
             "depth_method",
             default_value="opengl",
             description="libfreenect2 depth backend: opengl, opencl, cpu, default.",
+        ),
+        DeclareLaunchArgument(
+            "point_cloud_filter_min_distance",
+            default_value="0.0",
+            description="Minimum distance (metres) for point cloud filter. Set to 0.0 to disable cropping at near end.",
+        ),
+        DeclareLaunchArgument(
+            "point_cloud_filter_max_distance",
+            default_value="5.0",
+            description="Maximum distance (metres) for point cloud filter. Set to disable by using a large value.",
         ),
         OpaqueFunction(function=launch_setup),
     ])

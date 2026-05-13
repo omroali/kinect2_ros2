@@ -204,7 +204,7 @@ def launch_setup(context, *args, **kwargs):
     # in and works correctly via the X11 display forwarded into the container.
     _bridge_common = dict(
         publish_tf=True,
-        fps_limit=30.0,
+        fps_limit=60.0,
         use_png=False,
         depth_method="opengl",
         reg_method="default",

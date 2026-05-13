@@ -68,6 +68,7 @@ install(DIRECTORY
 # Install Python scripts
 install(PROGRAMS
   scripts/dynamic_camera_tf.py
+  scripts/vicon_marker_calibration_tf.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
