@@ -31,6 +31,11 @@ ros2 run kinect2_bridge colour_video_recorder.py \
                   /kinect2_4/qhd/image_color_rect]" \
     -p output_dir:="/data/recordings"
 
+ros2 run kinect2_bridge colour_video_recorder.py \
+    --ros-args \
+    -p topics:="[/kinect2_3/qhd/image_color_rect]" \
+    -p output_dir:="/data/recordings"
+
 # Generic RGB camera (publishes RGB8 instead of BGR8)
 ros2 run kinect2_bridge colour_video_recorder.py \
     --ros-args \
@@ -233,22 +238,25 @@ class StreamRecorder:
         with self._lock:
             if not self._started:
                 return
-            self.logger.info(
-                f"[{self.topic}] Stopping — {self.frame_idx} frames written."
-            )
+            if rclpy.ok():
+                self.logger.info(
+                    f"[{self.topic}] Stopping — {self.frame_idx} frames written."
+                )
             try:
                 self._proc.stdin.close()
                 self._proc.wait(timeout=30)
             except Exception as e:
-                self.logger.warn(f"[{self.topic}] ffmpeg shutdown error: {e}")
+                if rclpy.ok():
+                    self.logger.warn(f"[{self.topic}] ffmpeg shutdown error: {e}")
                 self._proc.kill()
             if self._csv_file:
                 self._csv_file.close()
-            self.logger.info(
-                f"[{self.topic}] Saved:\n"
-                f"  video: {self._video_path}\n"
-                f"  timestamps: {self._csv_path}"
-            )
+            if rclpy.ok():
+                self.logger.info(
+                    f"[{self.topic}] Saved:\n"
+                    f"  video: {self._video_path}\n"
+                    f"  timestamps: {self._csv_path}"
+                )
 
 
 # ── ROS2 Node ─────────────────────────────────────────────────────────────── #
@@ -334,7 +342,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

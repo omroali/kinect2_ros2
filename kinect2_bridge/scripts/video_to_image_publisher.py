@@ -45,7 +45,21 @@ ros2 run kinect2_bridge video_to_image_publisher.py \
                   /kinect2_2/qhd/image_color_rect, \
                   /kinect2_3/qhd/image_color_rect, \
                   /kinect2_4/qhd/image_color_rect]" \
+    -p frame_ids:="[kinect2_1_rgb_optical_frame, \
+                    kinect2_2_rgb_optical_frame, \
+                    kinect2_3_rgb_optical_frame, \
+                    kinect2_4_rgb_optical_frame]" \
     -p use_sim_time:=true
+
+
+ros2 run kinect2_bridge video_to_image_publisher.py \
+  --ros-args \
+  -p videos:="[/home/ros/base_ws/src/kinect2_ros2/kinect2_3_qhd_image_color_rect.mp4]" \
+  -p timestamp_csvs:="[/home/ros/base_ws/src/kinect2_ros2/kinect2_3_qhd_image_color_rect.csv]" \
+  -p topics:="[/kinect2_3/qhd/image_color_rect]" \
+  -p frame_ids:="[kinect2_3_rgb_optical_frame]" \
+  -p use_sim_time:=false
+
 
 Parameters
 ----------
@@ -58,6 +72,7 @@ Multi-stream mode:
   videos           list[str]  Paths to .mp4 files  (must match length of topics)
   timestamp_csvs   list[str]  Paths to .csv files  (must match length of topics)
   topics           list[str]  ROS topics to publish on
+  frame_ids        list[str]  Header frame_id for each topic (optional)
 
   queue_size       int        Publisher queue depth. Default: 10
   encoding         str        ROS image encoding.   Default: bgr8
@@ -95,16 +110,15 @@ Terminal 4 — pointcloud reconstruction:
 import csv
 import os
 import threading
+import time
 
 import cv2
 import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.clock import ClockType
-from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
 
 
@@ -128,6 +142,36 @@ def load_timestamps(csv_path: str) -> list[tuple[int, int]]:
     return rows
 
 
+def make_default_camera_info(width: int, height: int) -> CameraInfo:
+    info = CameraInfo()
+    info.width = width
+    info.height = height
+    info.distortion_model = "plumb_bob"
+    info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    fx = float(max(width, height))
+    fy = fx
+    cx = float(width - 1) / 2.0
+    cy = float(height - 1) / 2.0
+
+    info.k = [
+        fx, 0.0, cx,
+        0.0, fy, cy,
+        0.0, 0.0, 1.0,
+    ]
+    info.r = [
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    ]
+    info.p = [
+        fx, 0.0, cx, 0.0,
+        0.0, fy, cy, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+    ]
+    return info
+
+
 # ── Per-stream player ─────────────────────────────────────────────────────── #
 
 class VideoStream:
@@ -144,9 +188,10 @@ class VideoStream:
     """
 
     def __init__(self, video_path: str, csv_path: str,
-                 topic: str, encoding: str, queue_size: int, node: Node):
+                 topic: str, encoding: str, queue_size: int, frame_id: str, node: Node):
         self.topic    = topic
         self.encoding = encoding
+        self.frame_id = frame_id
         self._node    = node
 
         self._timestamps = load_timestamps(csv_path)
@@ -158,6 +203,11 @@ class VideoStream:
             raise RuntimeError(f"Cannot open video: {video_path}")
 
         self._pub = node.create_publisher(Image, topic, queue_size)
+        self._info_pub = node.create_publisher(CameraInfo, self._camera_info_topic(topic), queue_size)
+        self._camera_info = make_default_camera_info(
+            int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 0,
+            int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 0,
+        )
         self._lock = threading.Lock()
 
         node.get_logger().info(
@@ -211,7 +261,7 @@ class VideoStream:
             msg.header = Header()
             msg.header.stamp.sec     = ts_ns // 1_000_000_000
             msg.header.stamp.nanosec = ts_ns  % 1_000_000_000
-            msg.header.frame_id      = ""     # frame_id not needed for colour
+            msg.header.frame_id      = self.frame_id
             msg.height   = frame.shape[0]
             msg.width    = frame.shape[1]
             msg.encoding = self.encoding
@@ -219,11 +269,23 @@ class VideoStream:
             msg.data     = frame.tobytes()
 
             self._pub.publish(msg)
+            info = self._camera_info
+            info.header = Header()
+            info.header.stamp.sec = ts_ns // 1_000_000_000
+            info.header.stamp.nanosec = ts_ns % 1_000_000_000
+            info.header.frame_id = self.frame_id
+            self._info_pub.publish(info)
             self._cursor += 1
             return True
 
     def destroy(self):
         self._cap.release()
+
+    @staticmethod
+    def _camera_info_topic(image_topic: str) -> str:
+        if image_topic.endswith("/image_color_rect"):
+            return image_topic[: -len("/image_color_rect")] + "/camera_info"
+        return image_topic.rstrip("/") + "/camera_info"
 
 
 # ── ROS2 Node ─────────────────────────────────────────────────────────────── #
@@ -252,12 +314,15 @@ class VideoToImagePublisher(Node):
         self.declare_parameter('videos',         [''])
         self.declare_parameter('timestamp_csvs', [''])
         self.declare_parameter('topics',         [''])
+        self.declare_parameter('frame_id',       '')
+        self.declare_parameter('frame_ids',      [''])
 
         self.declare_parameter('queue_size', 10)
         self.declare_parameter('encoding',   'bgr8')
 
         queue_size = self.get_parameter('queue_size').value
         encoding   = self.get_parameter('encoding').value
+        single_frame_id = self.get_parameter('frame_id').value
 
         # ── Resolve single vs multi-stream ────────────────────────────────── #
 
@@ -274,11 +339,17 @@ class VideoToImagePublisher(Node):
             videos  = self.get_parameter('videos').value
             csvs    = self.get_parameter('timestamp_csvs').value
             topics  = self.get_parameter('topics').value
+            frame_ids = self.get_parameter('frame_ids').value
 
-            if not (len(videos) == len(csvs) == len(topics)):
+            if len(frame_ids) == 1 and len(topics) > 1:
+                frame_ids = frame_ids * len(topics)
+            elif not frame_ids:
+                frame_ids = [''] * len(topics)
+
+            if not (len(videos) == len(csvs) == len(topics) == len(frame_ids)):
                 raise ValueError(
                     f"videos ({len(videos)}), timestamp_csvs ({len(csvs)}), "
-                    f"and topics ({len(topics)}) must all have the same length."
+                    f"topics ({len(topics)}), and frame_ids ({len(frame_ids)}) must all have the same length."
                 )
             # Filter out empty default values
             videos = [v for v in videos if v]
@@ -290,33 +361,40 @@ class VideoToImagePublisher(Node):
                 "No video files specified.  Provide either:\n"
                 "  -p video:=... -p timestamps:=... -p topic:=...\n"
                 "or\n"
-                "  -p videos:=[...] -p timestamp_csvs:=[...] -p topics:=[...]"
+                "  -p videos:=[...] -p timestamp_csvs:=[...] -p topics:=[...] -p frame_ids:=[...]"
             )
 
         # ── Create one VideoStream per camera ─────────────────────────────── #
 
+        if single_video and single_csv and single_topic:
+            frame_ids = [single_frame_id]
+
         self._streams: list[VideoStream] = []
-        for video, csv_path, topic in zip(videos, csvs, topics):
+        for video, csv_path, topic, frame_id in zip(videos, csvs, topics, frame_ids):
             stream = VideoStream(
                 video_path = video,
                 csv_path   = csv_path,
                 topic      = topic,
                 encoding   = encoding,
                 queue_size = queue_size,
+                frame_id   = frame_id,
                 node       = self,
             )
             self._streams.append(stream)
 
-        # ── Clock subscriber ──────────────────────────────────────────────── #
-        # /clock is published by 'ros2 bag play --clock'.
-        # We track the latest sim time here rather than calling
-        # self.get_clock().now() so we get nanosecond precision directly
-        # from the clock message without going through the ROS clock API.
-
+        self._use_sim_time = bool(self.get_parameter('use_sim_time').value)
         self._clock_ns: int = 0
         self._clock_lock    = threading.Lock()
+        self._wall_start_mono_ns: int | None = None
+        self._wall_start_ros_ns: int | None = None
 
-        self.create_subscription(Clock, '/clock', self._clock_callback, 10)
+        if self._use_sim_time:
+            # /clock is published by 'ros2 bag play --clock'.
+            self.create_subscription(Clock, '/clock', self._clock_callback, 10)
+        else:
+            first_ts = [s.next_ts_ns for s in self._streams if s.next_ts_ns is not None]
+            self._wall_start_ros_ns = min(first_ts) if first_ts else 0
+            self._wall_start_mono_ns = time.monotonic_ns()
 
         # ── Publish timer ─────────────────────────────────────────────────── #
         # Poll at 1ms intervals — fast enough to not miss frames at 30fps
@@ -325,10 +403,16 @@ class VideoToImagePublisher(Node):
 
         self._timer = self.create_timer(0.001, self._tick)
 
-        self.get_logger().info(
-            f"Video publisher ready — {len(self._streams)} stream(s)\n"
-            "Waiting for /clock from bag player..."
-        )
+        if self._use_sim_time:
+            self.get_logger().info(
+                f"Video publisher ready — {len(self._streams)} stream(s)\n"
+                "Waiting for /clock from bag player..."
+            )
+        else:
+            self.get_logger().info(
+                f"Video publisher ready — {len(self._streams)} stream(s)\n"
+                "Wall-time mode active (use_sim_time=false)."
+            )
 
     def _clock_callback(self, msg: Clock):
         ns = msg.clock.sec * 1_000_000_000 + msg.clock.nanosec
@@ -336,11 +420,16 @@ class VideoToImagePublisher(Node):
             self._clock_ns = ns
 
     def _tick(self):
-        with self._clock_lock:
-            clock_ns = self._clock_ns
-
-        if clock_ns == 0:
-            return  # bag not started yet
+        if self._use_sim_time:
+            with self._clock_lock:
+                clock_ns = self._clock_ns
+            if clock_ns == 0:
+                return  # bag not started yet
+        else:
+            if self._wall_start_mono_ns is None or self._wall_start_ros_ns is None:
+                return
+            elapsed_ns = time.monotonic_ns() - self._wall_start_mono_ns
+            clock_ns = self._wall_start_ros_ns + elapsed_ns
 
         all_finished = True
         for stream in self._streams:

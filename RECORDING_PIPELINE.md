@@ -79,8 +79,8 @@ sudo apt install ros-$ROS_DISTRO-depth-image-proc \
 
 ## Phase 1 — Recording
 
-Run two processes in parallel: `colour_video_recorder` for colour streams and
-`ros2 bag record` for depth + camera info.
+Run `colour_video_recorder` for colour streams and one `ros2 bag record`
+process per active camera for depth + camera info.
 
 ### Step 1a — Start the bridge
 
@@ -141,22 +141,52 @@ frame_idx, ros_timestamp_ns
 ...
 ```
 
-### Step 1c — Record depth and camera info (bag)
+### Step 1c — Record depth and camera info (bags)
 
 ```bash
-ros2 bag record -o /data/session_001/depth \
+ros2 bag record -o /data/session_001/kinect2_1_rosbag \
     /kinect2_1/qhd/image_depth_rect/compressed \
+    /kinect2_1/sd/image_ir_rect/compressed \
     /kinect2_1/qhd/camera_info \
+
+ros2 bag record -o /data/session_001/kinect2_2_rosbag \
     /kinect2_2/qhd/image_depth_rect/compressed \
-    /kinect2_2/qhd/camera_info \
+    /kinect2_2/sd/image_ir_rect/compressed \
+    /kinect2_2/qhd/camera_info
+
+ros2 bag record -o /data/session_001/kinect2_3_rosbag \
     /kinect2_3/qhd/image_depth_rect/compressed \
-    /kinect2_3/qhd/camera_info \
+    /kinect2_3/sd/image_ir_rect/compressed \
+    /kinect2_3/qhd/camera_info
+
+ros2 bag record -o /data/session_001/kinect2_4_rosbag \
     /kinect2_4/qhd/image_depth_rect/compressed \
+    /kinect2_4/sd/image_ir_rect/compressed \
     /kinect2_4/qhd/camera_info
 ```
 
 > The `/compressed` depth topics are TIFF-encoded by default (lossless 16-bit).
 > Use `use_png:=true` on the bridge if you prefer PNG — both are lossless.
+
+### Remote start/stop recording
+
+If you want the sensors already running and only want to begin/end recording on
+command, launch the service manager:
+
+```bash
+ros2 launch kinect2_bridge kinect_recording_service.launch.py
+```
+
+Then call:
+
+```bash
+ros2 service call /start_recording std_srvs/srv/Trigger "{}"
+ros2 service call /stop_recording std_srvs/srv/Trigger "{}"
+```
+
+This records the cameras marked `record: true` in
+`kinect2_bridge/config/multi_camera_config.yaml`, one bag directory per
+active camera.
 
 ### Session layout after recording
 
@@ -170,9 +200,15 @@ ros2 bag record -o /data/session_001/depth \
   kinect2_3_qhd_image_color_rect.csv
   kinect2_4_qhd_image_color_rect.mp4
   kinect2_4_qhd_image_color_rect.csv
-  depth/                              ← ros2 bag directory
-    depth_0.mcap
+  kinect2_1_rosbag/
     metadata.yaml
+    ...
+  kinect2_2_rosbag/
+    ...
+  kinect2_3_rosbag/
+    ...
+  kinect2_4_rosbag/
+    ...
 ```
 
 ---

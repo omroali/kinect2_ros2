@@ -22,6 +22,8 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(freenect2 REQUIRED)
 
+ament_python_install_package(kinect2_bridge)
+
 add_executable(${PROJECT_NAME}_node
 	src/kinect2_bridge.cpp
 )
@@ -69,6 +71,11 @@ install(DIRECTORY
 install(PROGRAMS
   scripts/dynamic_camera_tf.py
   scripts/vicon_marker_calibration_tf.py
+  scripts/colour_video_recorder.py
+  scripts/video_to_image_publisher.py
+  scripts/sync_camera_frames.py
+  scripts/point_cloud_distance_filter.py
+  scripts/recording_manager.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
