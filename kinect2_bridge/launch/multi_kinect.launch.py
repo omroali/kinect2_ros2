@@ -2,10 +2,10 @@
 
 # Dynamic multi-Kinect launch for ROS 2 Jazzy.
 #
-# Creates one Kinect pipeline per serial entry in config/dual_kinect_serials.yaml
-# (or another file passed via serials_config:=...).
+# Creates one Kinect pipeline per enabled entry in config/multi_camera_config.yaml.
+# This file is the single source of truth for camera serials, frames and poses.
 #
-# Preferred unified format (single file):
+# Expected format:
 #   world_frame: map
 #   cameras:
 #     kinect2_1:
@@ -15,23 +15,17 @@
 #       position: {x: 0.0, y: 0.0, z: 1.0}
 #       orientation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
 #
-# Supported serials YAML format (same as current dual file):
-#   /kinect2_1/kinect2_bridge:
-#     ros__parameters:
-#       sensor: "001934470647"
-#
-# Camera transform config supports either:
-# 1) Legacy keys camera1/camera2/... with position/orientation/frame, matched by order
-# 2) cameras:<namespace>:... keyed directly by namespace
+# Camera transforms, serials and enable flags are read directly from the same
+# config file.
 
 import os
-import yaml
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from kinect2_bridge.recording_config import selected_cameras
 
 
 def _load_serial_entries(serials_path: str):
@@ -90,11 +84,11 @@ def _load_unified_config(unified_path: str):
             "pitch": str(float(ori.get("pitch", 0.0))),
             "yaw": str(float(ori.get("yaw", 0.0))),
         }
-        
+
         # Preserve point cloud filter config if present
         if "point_cloud_filter" in c and isinstance(c["point_cloud_filter"], dict):
             entry["point_cloud_filter"] = c["point_cloud_filter"]
-        
+
         entries.append(entry)
 
     return world_frame, entries
@@ -124,33 +118,24 @@ def _camera_cfg_for(ns: str, index: int, cam_cfg: dict) -> dict:
     }
 
 
+def _has_pcl_passthrough_executable() -> bool:
+    try:
+        prefix = get_package_prefix("pcl_ros")
+    except Exception:
+        return False
+    exec_path = os.path.join(prefix, "lib", "pcl_ros", "filter_passthrough_node")
+    return os.path.isfile(exec_path) and os.access(exec_path, os.X_OK)
+
+
 def launch_setup(context, *args, **kwargs):
     pkg_share = get_package_share_directory("kinect2_bridge")
-    config_dir = os.path.join(pkg_share, "config")
+    config_path = os.path.join(pkg_share, "config", "multi_camera_config.yaml")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"multi_camera_config.yaml not found at {config_path}")
 
-    unified_rel = LaunchConfiguration("multi_camera_config").perform(context)
-    serials_rel = LaunchConfiguration("serials_config").perform(context)
-    camera_rel = LaunchConfiguration("camera_config").perform(context)
-
-    unified_path = unified_rel if os.path.isabs(unified_rel) else os.path.join(config_dir, unified_rel)
-    serials_path = serials_rel if os.path.isabs(serials_rel) else os.path.join(config_dir, serials_rel)
-    camera_path = camera_rel if os.path.isabs(camera_rel) else os.path.join(config_dir, camera_rel)
-
-    # Prefer the unified config when available; fallback to legacy 2-file format.
-    world_frame, unified_entries = _load_unified_config(unified_path)
-    use_unified = len(unified_entries) > 0
-
-    if not use_unified:
-        if not os.path.isfile(serials_path):
-            raise FileNotFoundError(
-                f"No valid unified config at {unified_path} and serial config not found: {serials_path}"
-            )
-
-        serial_entries = _load_serial_entries(serials_path)
-        if not serial_entries:
-            raise RuntimeError(
-                f"No valid camera entries in unified config ({unified_path}) and no serial entries in {serials_path}"
-            )
+    world_frame, camera_entries = selected_cameras(config_path, "enabled")
+    if not camera_entries:
+        raise RuntimeError("No enabled cameras found in multi_camera_config.yaml")
 
     publish_tf = LaunchConfiguration("publish_transforms").perform(context).lower() in ("true", "1", "yes")
     launch_rviz = LaunchConfiguration("launch_rviz").perform(context).lower() in ("true", "1", "yes")
@@ -163,10 +148,7 @@ def launch_setup(context, *args, **kwargs):
     pc_res_list = [r.strip() for r in pc_res_arg.split(",") if r.strip() in ("sd", "qhd")]
     if not pc_res_list:
         pc_res_list = ["qhd"]
-
-    cam_cfg = {} if use_unified else _load_camera_config(camera_path)
-    if not use_unified:
-        world_frame = str(cam_cfg.get("world_frame", "map"))
+    has_passthrough_exec = _has_pcl_passthrough_executable()
 
     bridge_common = {
         "publish_tf": True,
@@ -183,31 +165,6 @@ def launch_setup(context, *args, **kwargs):
     }
 
     nodes = []
-
-    camera_entries = unified_entries if use_unified else []
-    if not use_unified:
-        for i, (ns, serial) in enumerate(serial_entries):
-            c = _camera_cfg_for(ns, i, cam_cfg)
-            entry = {
-                "namespace": ns,
-                "serial": serial,
-                "enabled": c["enabled"],
-                "frame": c["frame"],
-                "x": c["x"],
-                "y": c["y"],
-                "z": c["z"],
-                "roll": c["roll"],
-                "pitch": c["pitch"],
-                "yaw": c["yaw"],
-            }
-            
-            # Preserve point cloud filter config if present in legacy format
-            cameras_map = cam_cfg.get("cameras", {}) if isinstance(cam_cfg.get("cameras", {}), dict) else {}
-            if ns in cameras_map and isinstance(cameras_map[ns], dict):
-                if "point_cloud_filter" in cameras_map[ns]:
-                    entry["point_cloud_filter"] = cameras_map[ns]["point_cloud_filter"]
-            
-            camera_entries.append(entry)
 
     for i, c in enumerate(camera_entries):
         ns = c["namespace"]
@@ -254,24 +211,25 @@ def launch_setup(context, *args, **kwargs):
             if "point_cloud_filter" in c and isinstance(c["point_cloud_filter"], dict):
                 filter_min = float(c["point_cloud_filter"].get("min_distance", pc_filter_min_dist))
                 filter_max = float(c["point_cloud_filter"].get("max_distance", pc_filter_max_dist))
-            
-            nodes.append(Node(
-                package="pcl_ros",
-                executable="filter_passthrough_node",
-                name=f"{ns}_points_filter_{res}",
-                namespace=ns,
-                output="screen",
-                parameters=[{
-                    "filter_type": "passthrough",
-                    "filter_field_name": "z",
-                    "filter_limit_min": filter_min,
-                    "filter_limit_max": filter_max,
-                }],
-                remappings=[
-                    ("input", f"{res}/points"),
-                    ("output", f"{res}/points_filtered"),
-                ],
-            ))
+
+            if has_passthrough_exec:
+                nodes.append(Node(
+                    package="pcl_ros",
+                    executable="filter_passthrough_node",
+                    name=f"{ns}_points_filter_{res}",
+                    namespace=ns,
+                    output="screen",
+                    parameters=[{
+                        "filter_type": "passthrough",
+                        "filter_field_name": "z",
+                        "filter_limit_min": filter_min,
+                        "filter_limit_max": filter_max,
+                    }],
+                    remappings=[
+                        ("input", f"{res}/points"),
+                        ("output", f"{res}/points_filtered"),
+                    ],
+                ))
 
         if publish_tf and c["enabled"]:
             nodes.append(Node(
@@ -312,18 +270,8 @@ def generate_launch_description():
             default_value="multi_camera_config.yaml",
             description=(
                 "Unified camera YAML with serial+pose entries. "
-                "If missing/empty, launcher falls back to serials_config + camera_config."
+                "This is the single source of truth for multi-camera launches."
             ),
-        ),
-        DeclareLaunchArgument(
-            "serials_config",
-            default_value="dual_kinect_serials.yaml",
-            description="Serial mapping YAML in package config dir (or absolute path).",
-        ),
-        DeclareLaunchArgument(
-            "camera_config",
-            default_value="camera_config.yaml",
-            description="Camera pose YAML in package config dir (or absolute path).",
         ),
         DeclareLaunchArgument(
             "publish_transforms",
@@ -347,7 +295,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "depth_method",
-            default_value="opengl",
+            default_value="default",
             description="libfreenect2 depth backend: opengl, opencl, cpu, default.",
         ),
         DeclareLaunchArgument(

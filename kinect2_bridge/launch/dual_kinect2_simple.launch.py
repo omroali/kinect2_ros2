@@ -4,8 +4,7 @@
 # Dual Kinect v2 Launch File for ROS 2
 #
 # Loads configuration from:
-#   - config/dual_kinect_serials.yaml  (serial numbers per camera namespace)
-#   - config/camera_config.yaml        (camera positions and orientations)
+#   - config/multi_camera_config.yaml   (camera positions, serials, enabled flags)
 #
 # Topic architecture (why bridge nodes run at ROOT namespace):
 # ============================================================
@@ -26,7 +25,7 @@
 #
 # TF chain (set Fixed Frame = "map" in RViz):
 #   map
-#   ├── kinect2_1_link          ← static_transform_publisher (camera_config.yaml)
+#   ├── kinect2_1_link          ← static_transform_publisher (multi_camera_config.yaml)
 #   │   └── kinect2_1_rgb_optical_frame   ← bridge publishStaticTF()
 #   │       └── kinect2_1_ir_optical_frame
 #   └── kinect2_2_link
@@ -43,7 +42,6 @@
 #       publish_transforms:=false
 
 import os
-import yaml
 import xacro
 
 from ament_index_python.packages import get_package_share_directory
@@ -54,65 +52,12 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch.conditions import IfCondition
 
+from kinect2_bridge.recording_config import load_multi_camera_config, selected_cameras
+
 
 # ─────────────────────────────────────────────────────────────────── #
 #  Config helpers                                                       #
 # ─────────────────────────────────────────────────────────────────── #
-
-def _load_serials(serials_path: str) -> dict:
-    """
-    Parse dual_kinect_serials.yaml → {namespace: serial_string}.
-
-    Expected YAML format:
-        /kinect2_1/kinect2_bridge:
-          ros__parameters:
-            sensor: "001934470647"
-        /kinect2_2/kinect2_bridge:
-          ros__parameters:
-            sensor: "007425354147"
-    """
-    with open(serials_path, "r") as f:
-        data = yaml.safe_load(f)
-
-    result = {}
-    for key, val in data.items():
-        # key is like '/kinect2_1/kinect2_bridge' — take the first path component
-        ns = key.strip("/").split("/")[0]
-        result[ns] = str(val["ros__parameters"]["sensor"])
-    return result
-
-
-def _load_camera_config(config_path: str) -> dict:
-    """
-    Parse camera_config.yaml → flat dict of string values for
-    use as static_transform_publisher CLI arguments.
-    """
-    with open(config_path, "r") as f:
-        cfg = yaml.safe_load(f)
-
-    def _s(val):
-        """Numeric → plain string without scientific notation."""
-        return str(float(val))
-
-    return {
-        "world_frame": cfg.get("world_frame", "map"),
-        # Camera 1
-        "cam1_frame":  cfg["camera1"]["frame"],
-        "cam1_x":      _s(cfg["camera1"]["position"]["x"]),
-        "cam1_y":      _s(cfg["camera1"]["position"]["y"]),
-        "cam1_z":      _s(cfg["camera1"]["position"]["z"]),
-        "cam1_roll":   _s(cfg["camera1"]["orientation"]["roll"]),
-        "cam1_pitch":  _s(cfg["camera1"]["orientation"]["pitch"]),
-        "cam1_yaw":    _s(cfg["camera1"]["orientation"]["yaw"]),
-        # Camera 2
-        "cam2_frame":  cfg["camera2"]["frame"],
-        "cam2_x":      _s(cfg["camera2"]["position"]["x"]),
-        "cam2_y":      _s(cfg["camera2"]["position"]["y"]),
-        "cam2_z":      _s(cfg["camera2"]["position"]["z"]),
-        "cam2_roll":   _s(cfg["camera2"]["orientation"]["roll"]),
-        "cam2_pitch":  _s(cfg["camera2"]["orientation"]["pitch"]),
-        "cam2_yaw":    _s(cfg["camera2"]["orientation"]["yaw"]),
-    }
 
 
 # ─────────────────────────────────────────────────────────────────── #
@@ -130,30 +75,18 @@ def launch_setup(context, *args, **kwargs):
     do_tf     = do_tf_str.lower() in ("true", "1", "yes")
     do_rviz   = LaunchConfiguration("launch_rviz").perform(context).lower() in ("true", "1", "yes")
 
-    # ── Locate installed config files ──────────────────────────────── #
-    pkg_share  = get_package_share_directory("kinect2_bridge")
-    config_dir = os.path.join(pkg_share, "config")
+    pkg_share = get_package_share_directory("kinect2_bridge")
+    config_path = os.path.join(pkg_share, "config", "multi_camera_config.yaml")
+    world_frame, enabled_cameras = selected_cameras(config_path, "enabled")
+    if len(enabled_cameras) < 2:
+        raise RuntimeError("multi_camera_config.yaml must enable at least two cameras for dual_kinect2_simple.launch.py")
 
-    serials_path    = os.path.join(config_dir, "dual_kinect_serials.yaml")
-    cam_config_path = os.path.join(config_dir, "camera_config.yaml")
-
-    if not os.path.isfile(serials_path):
-        raise FileNotFoundError(
-            f"Serial config not found: {serials_path}\n"
-            "Did you rebuild with 'colcon build --packages-select kinect2_bridge'?"
-        )
-    if not os.path.isfile(cam_config_path):
-        raise FileNotFoundError(
-            f"Camera config not found: {cam_config_path}\n"
-            "Did you rebuild with 'colcon build --packages-select kinect2_bridge'?"
-        )
-
-    serials = _load_serials(serials_path)
-    cam     = _load_camera_config(cam_config_path)
+    cam1 = enabled_cameras[0]
+    cam2 = enabled_cameras[1]
 
     # ── Process sensor model xacro ─────────────────────────────────── #
     #
-    # Inject positions from camera_config.yaml as xacro mappings so the
+    # Inject positions from multi_camera_config.yaml as xacro mappings so the
     # URDF is generated with the correct poses at launch time.
     # robot_state_publisher will:
     #   • broadcast the fixed TF transforms (replaces static_transform_publisher)
@@ -161,25 +94,25 @@ def launch_setup(context, *args, **kwargs):
     #
     xacro_path = os.path.join(pkg_share, "urdf", "kinect2_sensor.urdf.xacro")
     urdf = xacro.process_file(xacro_path, mappings={
-        "world_frame": cam["world_frame"],
-        "cam1_frame":  cam["cam1_frame"],
-        "cam1_x":      cam["cam1_x"],
-        "cam1_y":      cam["cam1_y"],
-        "cam1_z":      cam["cam1_z"],
-        "cam1_roll":   cam["cam1_roll"],
-        "cam1_pitch":  cam["cam1_pitch"],
-        "cam1_yaw":    cam["cam1_yaw"],
-        "cam2_frame":  cam["cam2_frame"],
-        "cam2_x":      cam["cam2_x"],
-        "cam2_y":      cam["cam2_y"],
-        "cam2_z":      cam["cam2_z"],
-        "cam2_roll":   cam["cam2_roll"],
-        "cam2_pitch":  cam["cam2_pitch"],
-        "cam2_yaw":    cam["cam2_yaw"],
+        "world_frame": world_frame,
+        "cam1_frame":  cam1["frame"],
+        "cam1_x":      str(float(cam1["position"]["x"])),
+        "cam1_y":      str(float(cam1["position"]["y"])),
+        "cam1_z":      str(float(cam1["position"]["z"])),
+        "cam1_roll":   str(float(cam1["orientation"]["roll"])),
+        "cam1_pitch":  str(float(cam1["orientation"]["pitch"])),
+        "cam1_yaw":    str(float(cam1["orientation"]["yaw"])),
+        "cam2_frame":  cam2["frame"],
+        "cam2_x":      str(float(cam2["position"]["x"])),
+        "cam2_y":      str(float(cam2["position"]["y"])),
+        "cam2_z":      str(float(cam2["position"]["z"])),
+        "cam2_roll":   str(float(cam2["orientation"]["roll"])),
+        "cam2_pitch":  str(float(cam2["orientation"]["pitch"])),
+        "cam2_yaw":    str(float(cam2["orientation"]["yaw"])),
     }).toxml()
 
-    serial1 = serials.get(ns1, "")
-    serial2 = serials.get(ns2, "")
+    serial1 = cam1["serial"] if cam1["namespace"] == ns1 else next((c["serial"] for c in enabled_cameras if c["namespace"] == ns1), "")
+    serial2 = cam2["serial"] if cam2["namespace"] == ns2 else next((c["serial"] for c in enabled_cameras if c["namespace"] == ns2), "")
 
     nodes = []
 
@@ -355,7 +288,7 @@ def generate_launch_description():
             description=(
                 "Namespace and base_name for the first Kinect v2. "
                 "Topics land at /<namespace>/hd/, /qhd/, /sd/. "
-                "Serial is looked up by this key in dual_kinect_serials.yaml."
+                "Serial is looked up from multi_camera_config.yaml."
             ),
         ),
         DeclareLaunchArgument(
@@ -364,7 +297,7 @@ def generate_launch_description():
             description=(
                 "Namespace and base_name for the second Kinect v2. "
                 "Topics land at /<namespace>/hd/, /qhd/, /sd/. "
-                "Serial is looked up by this key in dual_kinect_serials.yaml."
+                "Serial is looked up from multi_camera_config.yaml."
             ),
         ),
         DeclareLaunchArgument(
@@ -372,7 +305,7 @@ def generate_launch_description():
             default_value="true",
             description=(
                 "Publish static TF transforms from world_frame (map) to each "
-                "camera link frame. Positions are read from camera_config.yaml. "
+                "camera link frame. Positions are read from multi_camera_config.yaml. "
                 "Set to 'false' if you provide transforms externally."
             ),
         ),

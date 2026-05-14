@@ -3,7 +3,7 @@
 # Copyright (c) 2024
 # Kinect v2 Sensor Visualisation Launch File
 #
-# Reads camera_config.yaml and generates a URDF that renders each Kinect v2
+# Reads multi_camera_config.yaml and generates a URDF that renders each Kinect v2
 # as a labelled 3-D box model in RViz at the exact pose defined in the config.
 #
 # The URDF contains fixed joints (map → kinect2_N_link), so robot_state_publisher
@@ -23,13 +23,14 @@
 #   rviz_config   path         RViz .rviz config file   (default: package kinect_viz.rviz)
 
 import os
-import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+from kinect2_bridge.recording_config import load_multi_camera_config
 
 
 # ─────────────────────────────────────────────────────────────────────────── #
@@ -185,17 +186,12 @@ def _fixed_joint(joint_name, parent, child, xyz, rpy):
 #  Config loader                                                               #
 # ─────────────────────────────────────────────────────────────────────────── #
 
-def _load_config(path: str) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f)
-
-
 # ─────────────────────────────────────────────────────────────────────────── #
 #  URDF generator                                                              #
 # ─────────────────────────────────────────────────────────────────────────── #
 
-def _generate_urdf(cfg: dict) -> str:
-    """Build a complete URDF string from camera_config.yaml content.
+def _generate_urdf(world_frame: str, cameras: dict) -> str:
+    """Build a complete URDF string from multi_camera_config.yaml content.
 
     Structure
     ---------
@@ -213,8 +209,6 @@ def _generate_urdf(cfg: dict) -> str:
       </joint>
     </robot>
     """
-    world_frame = cfg.get("world_frame", "map")
-
     parts = [
         '<?xml version="1.0"?>',
         '<robot name="kinect2_cameras">',
@@ -224,12 +218,8 @@ def _generate_urdf(cfg: dict) -> str:
     ]
 
     camera_index = 0
-    for i in range(1, 20):
-        key = f"camera{i}"
-        if key not in cfg:
-            break
-        cam = cfg[key]
-        if not cam.get("enabled", True):
+    for ns, cam in cameras.items():
+        if not isinstance(cam, dict) or not cam.get("enabled", True):
             continue
 
         frame = cam["frame"]
@@ -243,7 +233,7 @@ def _generate_urdf(cfg: dict) -> str:
         )
         accent = CAM_ACCENTS[camera_index % len(CAM_ACCENTS)]
 
-        parts.append(f'  <!-- ── Camera {i}: {frame} ────────────────────────────── -->')
+        parts.append(f'  <!-- ── Camera {ns}: {frame} ────────────────────────────── -->')
         parts.append(_kinect_link(frame, accent))
         parts.append('')
         parts.append(_fixed_joint(
@@ -267,16 +257,16 @@ def _generate_urdf(cfg: dict) -> str:
 
 def launch_setup(context, *args, **kwargs):
     pkg_share   = get_package_share_directory("kinect2_bridge")
-    config_path = os.path.join(pkg_share, "config", "camera_config.yaml")
+    config_path = os.path.join(pkg_share, "config", "multi_camera_config.yaml")
 
     if not os.path.isfile(config_path):
         raise FileNotFoundError(
-            f"camera_config.yaml not found at {config_path}\n"
+            f"multi_camera_config.yaml not found at {config_path}\n"
             "Run 'colcon build --packages-select kinect2_bridge --symlink-install'."
         )
 
-    cfg  = _load_config(config_path)
-    urdf = _generate_urdf(cfg)
+    world_frame, cameras = load_multi_camera_config(config_path)
+    urdf = _generate_urdf(world_frame, cameras)
 
     do_rviz     = LaunchConfiguration("launch_rviz").perform(context).lower() \
                   in ("true", "1", "yes")
@@ -333,7 +323,7 @@ def generate_launch_description():
             description=(
                 "Open RViz automatically. "
                 "Set to 'false' when running as an overlay alongside "
-                "dual_kinect2_simple.launch.py."
+                "delete_dual_kinect2_simple.launch.py."
             ),
         ),
         DeclareLaunchArgument(

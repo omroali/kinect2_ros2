@@ -8,10 +8,20 @@
 #     min_distance: 0.0    # metres, filters closer than this (0.0 = no near-clipping)
 #     max_distance: 5.0    # metres, filters farther than this (large value = no far-clipping)
 #
+# Recording launchers use `record: true/false` to decide which cameras to save.
+#
 # Launch parameters can override these defaults:
 #   ros2 launch ... point_cloud_filter_min_distance:=0.5 point_cloud_filter_max_distance:=3.0
 #
 # Per-camera settings override launch parameters if present.
+#
+# To detect the camera's serial number, re-detect serials with:
+#   lsusb -v -d 045e:02c4 2>/dev/null | grep iSerial
+#
+# Axis conventions used by vicon_marker_calibration_tf.py:
+#   forward = Top1 -> Top2
+#   camera-left = Top4 -> Top3
+#   up = forward x camera-left
 
 world_frame: map
 
@@ -19,6 +29,7 @@ cameras:
   kinect2_1:
     serial: "001934470647"
     enabled: true
+    record: false
     frame: kinect2_1_link
     position:
       x: 2.180622097845552
@@ -40,7 +51,8 @@ cameras:
 
   kinect2_2:
     serial: "007425354147"
-    enabled: true
+    enabled: false
+    record: false
     frame: kinect2_2_link
     position:
       x: 1.7250229003607818
@@ -60,14 +72,15 @@ cameras:
       min_distance: 0.0
       max_distance: 2.0
 
-# Example additional sensors:
-#  kinect2_3:
-#    serial: "XXXXXXXXXXXX"
-#    enabled: true
-#    frame: kinect2_3_link
-#    position: {x: 0.0, y: 0.0, z: 1.0}
-#    orientation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
-#
+  kinect2_3:
+    serial: "001926370647"
+    enabled: true
+    record: true
+    frame: kinect2_3_link
+    position: { x: 0.0, y: 0.0, z: 1.0 }
+    orientation: { roll: 0.0, pitch: 0.0, yaw: 0.0 }
+
+# #
 #  kinect2_4:
 #    serial: "YYYYYYYYYYYY"
 #    enabled: true
@@ -83,7 +96,3 @@ cameras:
 #       y: 0.0                        # metres, marker-frame left axis
 #       z: -0.03925                   # metres, marker-frame up axis (initial guess)
 #
-# Axis conventions used by vicon_marker_calibration_tf.py:
-#   forward = Top1 -> Top2
-#   camera-left = Top4 -> Top3
-#   up = forward x camera-left

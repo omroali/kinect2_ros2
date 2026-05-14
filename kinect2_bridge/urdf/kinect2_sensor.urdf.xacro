@@ -5,7 +5,7 @@
   URDF/xacro description for the dual Kinect v2 camera setup.
 
   Positions and frame names are supplied as xacro:arg values so that the
-  launch file can inject them directly from camera_config.yaml — keeping
+  launch file can inject them directly from multi_camera_config.yaml — keeping
   the config file as the single source of truth.
 
   Physical model
@@ -35,7 +35,7 @@
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!--  Scene-level arguments                                          -->
   <!--  Injected by dual_kinect2_simple.launch.py from                -->
-  <!--  camera_config.yaml via xacro.process_file mappings.           -->
+  <!--  multi_camera_config.yaml via xacro.process_file mappings.    -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
 
   <xacro:arg name="world_frame"  default="map"/>
