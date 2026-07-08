@@ -153,7 +153,11 @@ def launch_setup(context, *args, **kwargs):
     bridge_common = {
         "publish_tf": True,
         "fps_limit": 30.0,
-        "use_png": False,
+        # PNG (lossless) for 16-bit depth on the /compressed topics; the
+        # default (false) wraps depth in uncompressed TIFF. Encoding only
+        # runs while something subscribes, i.e. during recording.
+        "use_png": True,
+        "png_level": 4,
         "depth_method": depth_method,
         "reg_method": "default",
         "max_depth": 12.0,
