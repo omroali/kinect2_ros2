@@ -29,7 +29,7 @@ cameras:
   kinect2_1:
     serial: "001934470647"
     enabled: true
-    record: false
+    record: true
     frame: kinect2_1_link
     position:
       x: 2.180622097845552
@@ -45,15 +45,38 @@ cameras:
         x: 0.0
         y: 0.0
         z: -0.03925
-    point_cloud_filter:
-      min_distance: 0.0
-      max_distance: 2.0
+    # point_cloud_filter:
+    #   min_distance: 0.0
+    #   max_distance: 2.0
 
-  kinect2_2:
-    serial: "007425354147"
-    enabled: false
-    record: false
-    frame: kinect2_2_link
+  # kinect2_2:
+  #   serial: "007425354147"
+  #   enabled: true
+  #   record: true
+  #   frame: kinect2_2_link
+  #   position:
+  #     x: 1.7250229003607818
+  #     y: 0.38321394828841027
+  #     z: 0.9689872099394938
+  #   orientation:
+  #     roll: 0.01363704819092533
+  #     pitch: -0.09112338017412161
+  #     yaw: -1.9911738653058177
+  #   calibration:
+  #     vicon_object: KinectV2_2
+  #     marker_to_link_offset:
+  #       x: 0.0
+  #       y: 0.0
+  #       z: -0.03925
+  # point_cloud_filter:
+  #   min_distance: 0.0
+  #   max_distance: 2.0
+
+  kinect2_3:
+    serial: "001926370647"
+    enabled: true
+    record: true
+    frame: kinect2_3_link
     position:
       x: 1.7250229003607818
       y: 0.38321394828841027
@@ -63,7 +86,7 @@ cameras:
       pitch: -0.09112338017412161
       yaw: -1.9911738653058177
     calibration:
-      vicon_object: KinectV2_2
+      vicon_object: KinectV2_3
       marker_to_link_offset:
         x: 0.0
         y: 0.0
@@ -71,23 +94,7 @@ cameras:
     point_cloud_filter:
       min_distance: 0.0
       max_distance: 2.0
-
-  kinect2_3:
-    serial: "001926370647"
-    enabled: true
-    record: true
-    frame: kinect2_3_link
-    position: { x: 0.0, y: 0.0, z: 1.0 }
-    orientation: { roll: 0.0, pitch: 0.0, yaw: 0.0 }
-
 # #
-#  kinect2_4:
-#    serial: "YYYYYYYYYYYY"
-#    enabled: true
-#    frame: kinect2_4_link
-#    position: {x: 1.0, y: 0.0, z: 1.0}
-#    orientation: {roll: 0.0, pitch: 0.0, yaw: 1.57}
-#
 # Vicon auto-calibration fields (optional per camera):
 #   calibration:
 #     vicon_object: KinectV2_1        # maps to /vicon/markers/<vicon_object>/Top1..Top4
@@ -96,3 +103,44 @@ cameras:
 #       y: 0.0                        # metres, marker-frame left axis
 #       z: -0.03925                   # metres, marker-frame up axis (initial guess)
 #
+# realsense_d55_1:
+#   serial: "419122302628"
+#   ip: "192.168.11.55"
+#   enabled: true
+#   record: true
+#   frame: realsense_d55_1_link
+#   position:
+#     x: 2.180622097845552
+#     y: 0.5244930179473146
+#     z: 0.9542954810090617
+#   orientation:
+#     roll: -0.028268183752626894
+#     pitch: -0.10526059889219368
+#     yaw: -0.17619952136934408
+#   calibration:
+#     vicon_object: RealsenseD55_1
+#     marker_to_link_offset:
+#       x: 0.0
+#       y: 0.0
+#       z: -0.03925
+
+# realsense_d55_2:
+#   serial: "419222301842"
+#   ip: "192.168.11.56"
+#   enabled: true
+#   record: true
+#   frame: realsense_d55_2_link
+#   position:
+#     x: 1.7250229003607818
+#     y: 0.38321394828841027
+#     z: 0.9689872099394938
+#   orientation:
+#     roll: 0.01363704819092533
+#     pitch: -0.09112338017412161
+#     yaw: -1.9911738653058177
+#   calibration:
+#     vicon_object: RealsenseD55_2
+#     marker_to_link_offset:
+#       x: 0.0
+#       y: 0.0
+#       z: -0.03925
