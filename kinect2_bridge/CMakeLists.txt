@@ -71,11 +71,8 @@ install(DIRECTORY
 install(PROGRAMS
   scripts/dynamic_camera_tf.py
   scripts/vicon_marker_calibration_tf.py
-  scripts/colour_video_recorder.py
-  scripts/video_to_image_publisher.py
   scripts/sync_camera_frames.py
   scripts/point_cloud_distance_filter.py
-  scripts/recording_manager.py
   scripts/realsense_relay.py
   scripts/realsense_rgb_relay.py
   scripts/static_tf_from_yaml.py
