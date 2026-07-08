@@ -76,6 +76,9 @@ install(PROGRAMS
   scripts/sync_camera_frames.py
   scripts/point_cloud_distance_filter.py
   scripts/recording_manager.py
+  scripts/realsense_relay.py
+  scripts/realsense_rgb_relay.py
+  scripts/static_tf_from_yaml.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
