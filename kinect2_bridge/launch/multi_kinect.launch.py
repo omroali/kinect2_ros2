@@ -25,7 +25,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from kinect2_bridge.recording_config import selected_cameras
+from kinect2_bridge.recording_config import resolve_config_path, selected_cameras
 
 
 def _load_serial_entries(serials_path: str):
@@ -129,13 +129,13 @@ def _has_pcl_passthrough_executable() -> bool:
 
 def launch_setup(context, *args, **kwargs):
     pkg_share = get_package_share_directory("kinect2_bridge")
-    config_path = os.path.join(pkg_share, "config", "multi_camera_config.yaml")
+    config_path = LaunchConfiguration("config_file").perform(context)
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"multi_camera_config.yaml not found at {config_path}")
+        raise FileNotFoundError(f"camera config not found at {config_path}")
 
     world_frame, camera_entries = selected_cameras(config_path, "enabled")
     if not camera_entries:
-        raise RuntimeError("No enabled cameras found in multi_camera_config.yaml")
+        raise RuntimeError(f"No enabled cameras found in {config_path}")
 
     publish_tf = LaunchConfiguration("publish_transforms").perform(context).lower() in ("true", "1", "yes")
     launch_rviz = LaunchConfiguration("launch_rviz").perform(context).lower() in ("true", "1", "yes")
@@ -268,13 +268,19 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
+    pkg_share = get_package_share_directory("kinect2_bridge")
+    default_config = resolve_config_path(
+        "kinect_cameras.yaml",
+        os.path.join(pkg_share, "config", "multi_camera_config.yaml"),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
-            "multi_camera_config",
-            default_value="multi_camera_config.yaml",
+            "config_file",
+            default_value=default_config,
             description=(
-                "Unified camera YAML with serial+pose entries. "
-                "This is the single source of truth for multi-camera launches."
+                "Unified camera YAML with serial+pose entries. Defaults to "
+                "$SENSOR_CONFIG_DIR/kinect_cameras.yaml when available."
             ),
         ),
         DeclareLaunchArgument(

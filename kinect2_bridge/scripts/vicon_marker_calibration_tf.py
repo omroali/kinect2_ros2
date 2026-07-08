@@ -21,12 +21,13 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import rclpy
-from rclpy.node import Node
+import yaml
 from geometry_msgs.msg import PointStamped, TransformStamped
+from rclpy.node import Node
 from std_srvs.srv import Trigger
 from tf2_ros import TransformBroadcaster
-import yaml
 
+from kinect2_bridge.recording_config import resolve_config_path
 
 Vec3 = Tuple[float, float, float]
 
@@ -70,7 +71,9 @@ def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
-def quat_normalize(q: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
+def quat_normalize(
+    q: Tuple[float, float, float, float],
+) -> Tuple[float, float, float, float]:
     n = math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3])
     if n < 1e-12:
         return (0.0, 0.0, 0.0, 1.0)
@@ -97,8 +100,9 @@ def quat_to_rpy(q: Tuple[float, float, float, float]) -> Tuple[float, float, flo
     return roll, pitch, yaw
 
 
-def quat_angle_diff(q1: Tuple[float, float, float, float],
-                    q2: Tuple[float, float, float, float]) -> float:
+def quat_angle_diff(
+    q1: Tuple[float, float, float, float], q2: Tuple[float, float, float, float]
+) -> float:
     a = quat_normalize(q1)
     b = quat_normalize(q2)
     dot = abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3])
@@ -106,9 +110,11 @@ def quat_angle_diff(q1: Tuple[float, float, float, float],
     return 2.0 * math.acos(dot)
 
 
-def quat_slerp(q1: Tuple[float, float, float, float],
-               q2: Tuple[float, float, float, float],
-               alpha: float) -> Tuple[float, float, float, float]:
+def quat_slerp(
+    q1: Tuple[float, float, float, float],
+    q2: Tuple[float, float, float, float],
+    alpha: float,
+) -> Tuple[float, float, float, float]:
     a = clamp(alpha, 0.0, 1.0)
     q1n = quat_normalize(q1)
     q2n = quat_normalize(q2)
@@ -208,7 +214,13 @@ class ViconMarkerCalibrationTF(Node):
     def __init__(self):
         super().__init__("vicon_marker_calibration_tf")
 
-        self.declare_parameter("config_path", "")
+        self.declare_parameter(
+            "config_path",
+            resolve_config_path(
+                "kinect_cameras.yaml",
+                "/home/ubuntu/base_ws/src/kinect2_ros2/kinect2_bridge/config/multi_camera_config.yaml",
+            ),
+        )
         self.declare_parameter("world_frame", "map")
         self.declare_parameter("marker_topic_root", "/vicon/markers")
         self.declare_parameter("publish_rate", 30.0)
@@ -220,18 +232,30 @@ class ViconMarkerCalibrationTF(Node):
         self.declare_parameter("rotation_deadband_deg", 0.8)
 
         self.world_frame = str(self.get_parameter("world_frame").value)
-        self.marker_topic_root = str(self.get_parameter("marker_topic_root").value).rstrip("/")
+        self.marker_topic_root = str(
+            self.get_parameter("marker_topic_root").value
+        ).rstrip("/")
         self.max_marker_age_sec = float(self.get_parameter("max_marker_age_sec").value)
-        self.translation_alpha = clamp(float(self.get_parameter("translation_alpha").value), 0.0, 1.0)
-        self.rotation_alpha = clamp(float(self.get_parameter("rotation_alpha").value), 0.0, 1.0)
-        self.translation_deadband_m = max(0.0, float(self.get_parameter("translation_deadband_m").value))
-        self.rotation_deadband_rad = max(0.0, math.radians(float(self.get_parameter("rotation_deadband_deg").value)))
+        self.translation_alpha = clamp(
+            float(self.get_parameter("translation_alpha").value), 0.0, 1.0
+        )
+        self.rotation_alpha = clamp(
+            float(self.get_parameter("rotation_alpha").value), 0.0, 1.0
+        )
+        self.translation_deadband_m = max(
+            0.0, float(self.get_parameter("translation_deadband_m").value)
+        )
+        self.rotation_deadband_rad = max(
+            0.0, math.radians(float(self.get_parameter("rotation_deadband_deg").value))
+        )
 
         config_path = str(self.get_parameter("config_path").value)
         if not config_path:
             raise RuntimeError("config_path parameter is required")
         if not os.path.isfile(config_path):
-            raise FileNotFoundError(f"multi_camera_config file not found: {config_path}")
+            raise FileNotFoundError(
+                f"multi_camera_config file not found: {config_path}"
+            )
         self.config_path = config_path
 
         cameras = self._load_camera_marker_configs(config_path)
@@ -241,7 +265,9 @@ class ViconMarkerCalibrationTF(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.cameras: Dict[str, CameraState] = {}
         self._subscriptions = []
-        self._save_service = self.create_service(Trigger, "save_calibration", self._on_save_calibration)
+        self._save_service = self.create_service(
+            Trigger, "save_calibration", self._on_save_calibration
+        )
 
         for cam in cameras:
             state = CameraState(config=cam, points={}, stamps_sec={})
@@ -284,24 +310,34 @@ class ViconMarkerCalibrationTF(Node):
 
             frame = str(c.get("frame", f"{ns}_link"))
 
-            cal = c.get("calibration", {}) if isinstance(c.get("calibration", {}), dict) else {}
+            cal = (
+                c.get("calibration", {})
+                if isinstance(c.get("calibration", {}), dict)
+                else {}
+            )
             vicon_object = str(cal.get("vicon_object", ns))
 
             # Sensible default guess for Kinect2 link origin from marker-top centroid:
             # marker center is ~6.25 mm above top shell, shell half-height is 33 mm,
             # so marker plane is about +39.25 mm above link origin.
             # Offset from marker frame to link origin is therefore z = -0.03925 m.
-            off = cal.get("marker_to_link_offset", {}) if isinstance(cal.get("marker_to_link_offset", {}), dict) else {}
+            off = (
+                cal.get("marker_to_link_offset", {})
+                if isinstance(cal.get("marker_to_link_offset", {}), dict)
+                else {}
+            )
             ox = float(off.get("x", 0.0))
             oy = float(off.get("y", 0.0))
             oz = float(off.get("z", -0.03925))
 
-            out.append(CameraMarkerConfig(
-                namespace=str(ns),
-                frame=frame,
-                vicon_object=vicon_object,
-                offset_xyz=(ox, oy, oz),
-            ))
+            out.append(
+                CameraMarkerConfig(
+                    namespace=str(ns),
+                    frame=frame,
+                    vicon_object=vicon_object,
+                    offset_xyz=(ox, oy, oz),
+                )
+            )
 
         return out
 
@@ -311,9 +347,13 @@ class ViconMarkerCalibrationTF(Node):
             return
 
         state.points[marker_idx] = (msg.point.x, msg.point.y, msg.point.z)
-        state.stamps_sec[marker_idx] = float(msg.header.stamp.sec) + 1e-9 * float(msg.header.stamp.nanosec)
+        state.stamps_sec[marker_idx] = float(msg.header.stamp.sec) + 1e-9 * float(
+            msg.header.stamp.nanosec
+        )
 
-    def _camera_pose_from_markers(self, state: CameraState) -> Optional[Tuple[Vec3, Tuple[float, float, float, float]]]:
+    def _camera_pose_from_markers(
+        self, state: CameraState
+    ) -> Optional[Tuple[Vec3, Tuple[float, float, float, float]]]:
         # Need all 4 square-defining markers.
         if not all(i in state.points for i in (1, 2, 3, 4)):
             return None
@@ -363,9 +403,11 @@ class ViconMarkerCalibrationTF(Node):
         quat = rot_matrix_to_quat(r)
         return translation, quat
 
-    def _smooth_pose(self,
-                     old_pose: Optional[Tuple[Vec3, Tuple[float, float, float, float]]],
-                     new_pose: Tuple[Vec3, Tuple[float, float, float, float]]) -> Tuple[Vec3, Tuple[float, float, float, float]]:
+    def _smooth_pose(
+        self,
+        old_pose: Optional[Tuple[Vec3, Tuple[float, float, float, float]]],
+        new_pose: Tuple[Vec3, Tuple[float, float, float, float]],
+    ) -> Tuple[Vec3, Tuple[float, float, float, float]]:
         if old_pose is None:
             return new_pose
 
@@ -426,7 +468,9 @@ class ViconMarkerCalibrationTF(Node):
         if transforms:
             self.tf_broadcaster.sendTransform(transforms)
 
-    def _replace_section_values(self, block_lines: List[str], section_name: str, values: dict) -> List[str]:
+    def _replace_section_values(
+        self, block_lines: List[str], section_name: str, values: dict
+    ) -> List[str]:
         section_start = None
         for index, line in enumerate(block_lines):
             if line == f"    {section_name}:\n":
@@ -437,13 +481,25 @@ class ViconMarkerCalibrationTF(Node):
             return block_lines
 
         section_end = section_start + 1
-        while section_end < len(block_lines) and block_lines[section_end].startswith("      "):
+        while section_end < len(block_lines) and block_lines[section_end].startswith(
+            "      "
+        ):
             section_end += 1
 
-        replacement_lines = [f"      {key}: {format_yaml_number(values[key])}\n" for key in values]
-        return block_lines[:section_start + 1] + replacement_lines + block_lines[section_end:]
+        replacement_lines = [
+            f"      {key}: {format_yaml_number(values[key])}\n" for key in values
+        ]
+        return (
+            block_lines[: section_start + 1]
+            + replacement_lines
+            + block_lines[section_end:]
+        )
 
-    def _update_camera_block(self, block_lines: List[str], pose: Tuple[Vec3, Tuple[float, float, float, float]]) -> List[str]:
+    def _update_camera_block(
+        self,
+        block_lines: List[str],
+        pose: Tuple[Vec3, Tuple[float, float, float, float]],
+    ) -> List[str]:
         translation, quat = pose
         roll, pitch, yaw = quat_to_rpy(quat)
 
@@ -459,10 +515,14 @@ class ViconMarkerCalibrationTF(Node):
         }
 
         updated = self._replace_section_values(block_lines, "position", position_values)
-        updated = self._replace_section_values(updated, "orientation", orientation_values)
+        updated = self._replace_section_values(
+            updated, "orientation", orientation_values
+        )
         return updated
 
-    def _find_camera_block(self, lines: List[str], camera_key: str) -> Optional[Tuple[int, int]]:
+    def _find_camera_block(
+        self, lines: List[str], camera_key: str
+    ) -> Optional[Tuple[int, int]]:
         start = None
         target = f"  {camera_key}:\n"
         for index, line in enumerate(lines):
@@ -476,7 +536,12 @@ class ViconMarkerCalibrationTF(Node):
         end = len(lines)
         for index in range(start + 1, len(lines)):
             line = lines[index]
-            if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":") and not line.lstrip().startswith("#"):
+            if (
+                line.startswith("  ")
+                and not line.startswith("    ")
+                and line.strip().endswith(":")
+                and not line.lstrip().startswith("#")
+            ):
                 end = index
                 break
 
@@ -509,10 +574,14 @@ class ViconMarkerCalibrationTF(Node):
 
         if not updated:
             response.success = False
-            response.message = "No camera poses were saved; calibration data is not ready yet"
+            response.message = (
+                "No camera poses were saved; calibration data is not ready yet"
+            )
             return response
 
-        for start, end, pose in sorted(block_updates, key=lambda item: item[0], reverse=True):
+        for start, end, pose in sorted(
+            block_updates, key=lambda item: item[0], reverse=True
+        ):
             block_lines = lines[start:end]
             updated_block = self._update_camera_block(block_lines, pose)
             lines[start:end] = updated_block
