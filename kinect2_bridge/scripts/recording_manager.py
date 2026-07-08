@@ -29,15 +29,29 @@ class RecordingManager(Node):
         self.declare_parameter("video_crf", 18)
         self.declare_parameter("video_fps", 30.0)
         self.declare_parameter("bag_storage", "mcap")
+        self.declare_parameter("bag_compression", "none")
+        self.declare_parameter("bag_cache_size_mb", 128)
 
+        self._bag_cache_size_mb = int(self.get_parameter("bag_cache_size_mb").value)
         self._output_root = str(self.get_parameter("output_root").value)
         self._participant_id = str(self.get_parameter("participant_id").value)
-        self._color_topics = [str(t) for t in self.get_parameter("color_topics").value if t]
-        self._bag_topics = [str(t) for t in self.get_parameter("bag_topics").value if t]
+        self._color_topics = [
+            str(t) for t in self.get_parameter("color_topics").value if t
+        ]
+        self._bag_topics = list(
+            dict.fromkeys(str(t) for t in self.get_parameter("bag_topics").value if t)
+        )
         self._video_encoder = str(self.get_parameter("video_encoder").value)
         self._video_crf = int(self.get_parameter("video_crf").value)
         self._video_fps = float(self.get_parameter("video_fps").value)
         self._bag_storage = str(self.get_parameter("bag_storage").value)
+        self._bag_compression = str(self.get_parameter("bag_compression").value).lower()
+        if self._bag_compression not in {"none", "file", "message"}:
+            self.get_logger().warn(
+                f"bag_compression='{self._bag_compression}' not recognized; "
+                "treating as 'none'. Valid values: none, file, message."
+            )
+            self._bag_compression = "none"
 
         self._lock = threading.Lock()
         self._active = False
@@ -46,8 +60,12 @@ class RecordingManager(Node):
         self._color_proc = None
         self._bag_proc = None
 
-        self._start_service = self.create_service(Trigger, "start_recording", self._on_start)
-        self._stop_service = self.create_service(Trigger, "stop_recording", self._on_stop)
+        self._start_service = self.create_service(
+            Trigger, "start_recording", self._on_start
+        )
+        self._stop_service = self.create_service(
+            Trigger, "stop_recording", self._on_stop
+        )
 
         self.get_logger().info(
             "Recording manager ready\n"
@@ -58,7 +76,9 @@ class RecordingManager(Node):
             f"  encoder      : {self._video_encoder}\n"
             f"  crf          : {self._video_crf}\n"
             f"  fps          : {self._video_fps}\n"
-            f"  bag_storage  : {self._bag_storage}"
+            f"  bag_storage  : {self._bag_storage}\n"
+            f"  bag_compression: {self._bag_compression}\n"
+            f"  cache_size_mb: {self._bag_cache_size_mb}"
         )
 
     def _session_path(self) -> str:
@@ -76,22 +96,42 @@ class RecordingManager(Node):
     def _build_color_cmd(self, output_dir: str) -> list[str]:
         topic_arg = "[" + ",".join(self._color_topics) + "]"
         return [
-            "ros2", "run", "kinect2_bridge", "colour_video_recorder.py",
+            "ros2",
+            "run",
+            "kinect2_bridge",
+            "colour_video_recorder.py",
             "--ros-args",
-            "-p", f"topics:={topic_arg}",
-            "-p", f"output_dir:={output_dir}",
-            "-p", f"encoder:={self._video_encoder}",
-            "-p", f"crf:={self._video_crf}",
-            "-p", f"fps:={self._video_fps}",
+            "-p",
+            f"topics:={topic_arg}",
+            "-p",
+            f"output_dir:={output_dir}",
+            "-p",
+            f"encoder:={self._video_encoder}",
+            "-p",
+            f"crf:={self._video_crf}",
+            "-p",
+            f"fps:={self._video_fps}",
         ]
 
     def _build_bag_cmd(self, bag_dir: str) -> list[str]:
-        return [
-            "ros2", "bag", "record",
-            "-o", bag_dir,
-            "--storage", self._bag_storage,
-            *self._bag_topics,
+        cmd = [
+            "ros2",
+            "bag",
+            "record",
+            "-o",
+            bag_dir,
+            "--storage",
+            self._bag_storage,
+            "--max-cache-size",
+            str(self._bag_cache_size_mb * 1024 * 1024),
         ]
+        if self._bag_compression in {"file", "message"}:
+            cmd += [
+                "--compression-mode", self._bag_compression,
+                "--compression-format", "zstd",
+            ]
+        cmd += ["--topics", *self._bag_topics]
+        return cmd
 
     def _stop_processes(self):
         with self._lock:
@@ -146,7 +186,9 @@ class RecordingManager(Node):
             self._session_dir = self._session_path()
             output_dir = self._session_dir
             bag_dir = os.path.join(output_dir, "depth")
-            os.makedirs(bag_dir, exist_ok=True)
+            # ros2 bag record refuses to start if its output folder already
+            # exists, so only create the session dir and let it make bag_dir.
+            os.makedirs(output_dir, exist_ok=True)
             self._stop_requested = False
 
         try:
