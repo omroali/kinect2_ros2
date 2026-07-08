@@ -1,0 +1,44 @@
+world_frame: map
+
+cameras:
+  realsense_d55_1:
+    serial: "419122302628"
+    ip: "192.168.11.55"
+    enabled: true
+    record: true
+    frame: realsense_d55_1_link
+    position:
+      x: 2.180622097845552
+      y: 0.5244930179473146
+      z: 0.9542954810090617
+    orientation:
+      roll: -0.028268183752626894
+      pitch: -0.10526059889219368
+      yaw: -0.17619952136934408
+    calibration:
+      vicon_object: RealsenseD55_1
+      marker_to_link_offset:
+        x: 0.0
+        y: 0.0
+        z: -0.03925
+
+  realsense_d55_2:
+    serial: "419222301842"
+    ip: "192.168.11.56"
+    enabled: true
+    record: true
+    frame: realsense_d55_2_link
+    position:
+      x: 1.7250229003607818
+      y: 0.38321394828841027
+      z: 0.9689872099394938
+    orientation:
+      roll: 0.01363704819092533
+      pitch: -0.09112338017412161
+      yaw: -1.9911738653058177
+    calibration:
+      vicon_object: RealsenseD55_2
+      marker_to_link_offset:
+        x: 0.0
+        y: 0.0
+        z: -0.03925
