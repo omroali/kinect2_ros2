@@ -8,6 +8,17 @@ from typing import Any
 import yaml
 
 
+def resolve_config_path(filename: str, fallback: str) -> str:
+    """Prefer $SENSOR_CONFIG_DIR/<filename> — the repo-level unified config
+    directory mounted into the container — over the installed package copy."""
+    config_dir = os.environ.get("SENSOR_CONFIG_DIR", "")
+    if config_dir:
+        candidate = os.path.join(config_dir, filename)
+        if os.path.isfile(candidate):
+            return candidate
+    return fallback
+
+
 def load_multi_camera_config(config_path: str) -> tuple[str, dict[str, dict[str, Any]]]:
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"Camera config not found: {config_path}")
