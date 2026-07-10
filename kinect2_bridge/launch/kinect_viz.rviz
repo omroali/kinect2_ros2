@@ -4,12 +4,15 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Status1
         - /Realsense1
-        - /Realsense1/Color 18421/Topic1
-        - /Realsense1/Color 26281/Topic1
+        - /Realsense1/Depth 18421
+        - /Realsense1/Depth 26281
+        - /Realsense1/Color 18421
+        - /Realsense1/Color 26281
         - /Vicon1
-      Splitter Ratio: 0.3476923108100891
-    Tree Height: 442
+      Splitter Ratio: 0.5481283664703369
+    Tree Height: 837
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -181,6 +184,7 @@ Visualization Manager:
               Value: true
             Realsense:
               "": true
+              Depth 1842: true
               Value: true
             RobotModel: true
             TF: false
@@ -214,6 +218,7 @@ Visualization Manager:
               Value: true
             Realsense:
               "": true
+              Depth 1842: true
               Value: true
             RobotModel: true
             TF: false
@@ -247,6 +252,7 @@ Visualization Manager:
               Value: true
             Realsense:
               "": true
+              Depth 1842: true
               Value: true
             RobotModel: true
             TF: true
@@ -280,6 +286,7 @@ Visualization Manager:
               Value: true
             Realsense:
               "": true
+              Depth 1842: true
               Value: true
             RobotModel: true
             TF: true
@@ -306,7 +313,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 113
+      Max Intensity: 118
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: Velodyne
@@ -338,7 +345,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /realsense/D555_419222301842_Depth
+            Value: /realsense/D555_419222301842/depth/image_rect_raw
           Value: true
         - Class: rviz_default_plugins/Image
           Enabled: true
@@ -352,7 +359,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /realsense/D555_419122302628_Depth
+            Value: /realsense/D555_419122302628/depth/image_rect_raw
           Value: true
         - Class: rviz_default_plugins/Image
           Enabled: true
@@ -366,7 +373,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /realsense/D555_419222301842_Color
+            Value: /realsense/D555_419222301842/color/image_raw
           Value: true
         - Class: rviz_default_plugins/Image
           Enabled: true
@@ -380,86 +387,8 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /realsense/D555_419122302628_Color
+            Value: /realsense/D555_419122302628/color/image_raw
           Value: true
-        - Class: rviz_default_plugins/Camera
-          Enabled: false
-          Far Plane Distance: 100
-          Image Rendering: background and overlay
-          Name: Camera 1842
-          Overlay Alpha: 0.5
-          Topic:
-            Depth: 5
-            Durability Policy: Volatile
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /realsense/D555_419222301842_Color
-          Value: false
-          Visibility:
-            Grid: true
-            Kinect:
-              "Depth k2_1 ": true
-              Depth k2_3: true
-              PCL k2_1: true
-              PCL k2_3: true
-              RGB k2_1: true
-              RGB k2_3: true
-              Value: true
-            Realsense:
-              Camera 2628: true
-              Color 1842: true
-              Color 2628: true
-              Depth 1842: true
-              Depth 2628: true
-              Value: true
-            RobotModel: true
-            TF: true
-            Value: true
-            Velodyne: true
-            Vicon:
-              Labeled: true
-              Unlabeled: true
-              Value: true
-          Zoom Factor: 1
-        - Class: rviz_default_plugins/Camera
-          Enabled: false
-          Far Plane Distance: 100
-          Image Rendering: background and overlay
-          Name: Camera 2628
-          Overlay Alpha: 0.5
-          Topic:
-            Depth: 5
-            Durability Policy: Volatile
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /realsense/D555_419122302628_Color
-          Value: false
-          Visibility:
-            Grid: true
-            Kinect:
-              "Depth k2_1 ": true
-              Depth k2_3: true
-              PCL k2_1: true
-              PCL k2_3: true
-              RGB k2_1: true
-              RGB k2_3: true
-              Value: true
-            Realsense:
-              Camera 1842: true
-              Color 1842: true
-              Color 2628: true
-              Depth 1842: true
-              Depth 2628: true
-              Value: true
-            RobotModel: true
-            TF: true
-            Value: true
-            Velodyne: true
-            Vicon:
-              Labeled: true
-              Unlabeled: true
-              Value: true
-          Zoom Factor: 1
       Enabled: true
       Name: Realsense
     - Class: rviz_common/Group
@@ -528,21 +457,17 @@ Visualization Manager:
       Lock Camera: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.451936811208725
+      Pitch: 0.5169368982315063
       Point towards: -z axis
       Position:
-        X: -0.2572271525859833
-        Y: 13.953903198242188
-        Z: 4.996453762054443
+        X: -0.9868619441986084
+        Y: 16.828887939453125
+        Z: 6.5282487869262695
       Target Frame: map
       Value: FrameAligned (rviz_default_plugins)
-      Yaw: 3.981478691101074
+      Yaw: 4.8114848136901855
     Saved: ~
 Window Geometry:
-  Camera 1842:
-    collapsed: false
-  Camera 2628:
-    collapsed: false
   Color 1842:
     collapsed: false
   Color 2628:
@@ -557,10 +482,10 @@ Window Geometry:
     collapsed: false
   Displays:
     collapsed: false
-  Height: 971
+  Height: 1043
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000300000000000001e800000338fc020000000cfb000000100044006900730070006c006100790073010000003b000001f5000000c700fffffffb0000000a00560069006500770073000000011e000000b2000000a000fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000015f000000860000005c00fffffffb0000001200530065006c0065006300740069006f006e000000019b0000009f0000005c00fffffffb0000000c00430061006d0065007200610000000468000000d80000000000000000fb00000014004400650070007400680020006b0032005f00320000000302000000890000000000000000fb000000100052004700420020006b0032005f003200000002e4000000a70000000000000000fb0000000c00430061006d00650072006101000002ae000000c50000000000000000fb000000140043006f006c006f00720020003100380034003201000002360000009b0000001600fffffffb0000001600430061006d00650072006100200032003600320038000000026a000000810000001600fffffffb0000001600430061006d0065007200610020003100380034003200000002900000006e0000001600fffffffb000000140043006f006c006f00720020003200360032003801000002d70000009c0000001600ffffff000000010000019300000338fc0200000008fb00000016004400650070007400680020006b0032005f00310020000000003b000003500000001600fffffffb000000100052004700420020006b0032005f0031000000003b000000840000001600fffffffc00000207000001840000000000fffffffa000000000100000003fb0000000c00430061006d0065007200610000000000ffffffff0000000000000000fb0000000c00430061006d0065007200610000000000ffffffff0000000000000000fb00000014004400650070007400680020006b0032005f0033000000068d000003300000007900fffffffb000000100052004700420020006b0032005f0033000000003b000000770000001600fffffffb0000001000520047004200200031003800340032010000003b0000008e0000000000000000fb000000100052004700420020003200360032003801000000cf000000e90000000000000000fb000000140044006500700074006800200031003800340032010000003b0000018f0000001600fffffffb00000014004400650070007400680020003200360032003801000001d0000001a30000001600ffffff000000030000072d00000037fc0100000001fb0000000800540069006d006501000000000000072d0000025300ffffff000003a60000033800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000003000000000000017800000380fc020000000afb000000100044006900730070006c006100790073010000003b00000380000000c700fffffffb0000000a00560069006500770073000000011e000000b2000000a000fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000015f000000860000005c00fffffffb0000001200530065006c0065006300740069006f006e000000019b0000009f0000005c00fffffffb0000000c00430061006d0065007200610000000468000000d80000000000000000fb00000014004400650070007400680020006b0032005f00320000000302000000890000000000000000fb000000100052004700420020006b0032005f003200000002e4000000a70000000000000000fb0000000c00430061006d00650072006101000002ae000000c50000000000000000fb0000001600430061006d00650072006100200032003600320038000000026a000000810000000000000000fb0000001600430061006d0065007200610020003100380034003200000002900000006e0000000000000000000000010000016300000380fc020000000bfb00000016004400650070007400680020006b0032005f00310020000000003b000003500000001600fffffffb000000100052004700420020006b0032005f0031000000003b000000840000001600fffffffc00000207000001840000000000fffffffa000000000100000003fb0000000c00430061006d0065007200610000000000ffffffff0000000000000000fb0000000c00430061006d0065007200610000000000ffffffff0000000000000000fb00000014004400650070007400680020006b0032005f0033000000068d000003300000007900fffffffb000000100052004700420020006b0032005f0033000000003b000000770000001600fffffffb0000001000520047004200200031003800340032010000003b0000008e0000000000000000fb000000100052004700420020003200360032003801000000cf000000e90000000000000000fb000000140043006f006c006f007200200031003800340032010000003b0000007a0000001600fffffffb000000140043006f006c006f00720020003200360032003801000000bb000001740000001600fffffffb0000001400440065007000740068002000310038003400320100000235000000dd0000001600fffffffb0000001400440065007000740068002000320036003200380100000318000000a30000001600fffffffb00000014004400650070007400680020003200360032003801000001e4000001b70000000000000000000000030000078000000037fc0100000001fb0000000800540069006d00650100000000000007800000025300ffffff000004990000038000000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   RGB k2_1:
     collapsed: false
   RGB k2_3:
@@ -573,6 +498,6 @@ Window Geometry:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1837
-  X: 75
-  Y: 64
+  Width: 1920
+  X: 1920
+  Y: 0
