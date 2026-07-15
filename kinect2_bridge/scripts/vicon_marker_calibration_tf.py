@@ -2,30 +2,43 @@
 """
 Vicon marker-based Kinect TF calibration.
 
-This node estimates each camera pose from 4 Vicon marker topics (Top1..Top4),
-then publishes map -> <camera_frame> transforms.
+This node estimates each camera pose from Vicon marker topics, then
+publishes map -> <camera_frame> transforms.
 
-Per-camera marker geometry assumptions:
-- Top1 is behind Top2 (camera forward axis points Top1 -> Top2)
-- Marker labels Top3/Top4 are described from in front of the camera
-    looking at it, so Top3 is observer-left and Top4 is observer-right.
-    That means camera-left is Top4 and camera-right is Top3.
-- Markers form an approximate square on the camera top plane
+Two pose-estimation modes, selected per camera by the config file:
+
+1. Configurable marker layout (preferred). The camera's `calibration:` block
+   declares a `markers:` map of marker name -> measured local position. The
+   pose is solved with Kabsch/Umeyama SVD rigid registration, which supports
+   any non-collinear layout of 3+ markers (they need not be coplanar or form
+   a square). Local positions are expressed in a per-camera "body" frame
+   (see the config file for the frame definition: X forward along the
+   optical axis, Y left, Z up). `link_offset:` places the camera link origin
+   inside that body frame, and `extra_frames:` publishes additional rigidly
+   attached sensor frames (e.g. a RealSense mounted above the Kinect) as
+   static children of the camera frame.
+
+2. Legacy fixed 4-marker square (fallback when no `markers:` block exists):
+   - Top1 is behind Top2 (camera forward axis points Top1 -> Top2)
+   - Marker labels Top3/Top4 are described from in front of the camera
+     looking at it, so camera-left is Top4 and camera-right is Top3.
+   - Markers form an approximate square on the camera top plane
 
 Configuration is read from multi_camera_config.yaml.
 """
 
 import math
 import os
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import rclpy
 import yaml
 from geometry_msgs.msg import PointStamped, TransformStamped
 from rclpy.node import Node
 from std_srvs.srv import Trigger
-from tf2_ros import TransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from kinect2_bridge.recording_config import resolve_config_path
 
@@ -181,6 +194,19 @@ def rot_matrix_to_quat(r: List[List[float]]) -> Tuple[float, float, float, float
     return quat_normalize((qx, qy, qz, qw))
 
 
+def rpy_to_rot_matrix(roll: float, pitch: float, yaw: float) -> List[List[float]]:
+    # ZYX convention (yaw about Z, then pitch about Y, then roll about X),
+    # matching the RPY convention used by quat_to_rpy above.
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    return [
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ]
+
+
 def apply_rotation(r: List[List[float]], v: Vec3) -> Vec3:
     return (
         r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
@@ -194,19 +220,70 @@ def format_yaml_number(value: float) -> str:
     return "0.0" if text == "-0.0" else text
 
 
+def umeyama(a_pts: List[Vec3], b_pts: List[Vec3]) -> Tuple[np.ndarray, np.ndarray, float]:
+    """
+    SVD-based rigid registration (Kabsch/Umeyama, rotation + translation only).
+
+    a_pts: N local points (in the camera body frame)
+    b_pts: N corresponding world points (from Vicon, in the map frame)
+
+    Returns (R, t, rms) such that world ~= R @ local + t, where R is a 3x3
+    proper rotation matrix, t a 3-vector, and rms the root-mean-square
+    registration residual in metres.
+    """
+    a = np.asarray(a_pts, dtype=np.float64)
+    b = np.asarray(b_pts, dtype=np.float64)
+
+    cent_a = a.mean(axis=0)
+    cent_b = b.mean(axis=0)
+    a_c = a - cent_a
+    b_c = b - cent_b
+
+    # Cross-covariance H = sum(a_i @ b_i^T)
+    h = a_c.T @ b_c
+    u, _, vt = np.linalg.svd(h)
+    r = vt.T @ u.T
+
+    # Guard against reflection (improper rotation).
+    if np.linalg.det(r) < 0.0:
+        vt[-1, :] *= -1.0
+        r = vt.T @ u.T
+
+    t = cent_b - r @ cent_a
+    residuals = (r @ a.T).T + t - b
+    rms = float(np.sqrt(np.mean(np.sum(residuals * residuals, axis=1))))
+    return r, t, rms
+
+
 @dataclass
 class CameraMarkerConfig:
     namespace: str
     frame: str
     vicon_object: str
     offset_xyz: Vec3
+    # Configurable marker layout (empty -> legacy fixed Top1..Top4 square).
+    marker_names: List[str] = field(default_factory=list)
+    marker_local: Dict[str, Vec3] = field(default_factory=dict)
+    # Camera link origin expressed in the same body frame as marker_local.
+    link_offset: Vec3 = (0.0, 0.0, 0.0)
+    # Small fixed rotation (roll, pitch, yaw radians) applied in the body
+    # frame after marker-fit registration, to correct for the marker plate
+    # not being perfectly parallel to the camera's true optical axis
+    # (a mounting/boresight tolerance -- tune empirically while watching
+    # the point cloud/TF axes in RViz).
+    orientation_offset_rpy: Vec3 = (0.0, 0.0, 0.0)
+    # Extra rigidly attached sensor frames (name -> body-frame position),
+    # published as static children of the camera frame.
+    extra_frames: Dict[str, Vec3] = field(default_factory=dict)
 
 
 @dataclass
 class CameraState:
     config: CameraMarkerConfig
-    points: Dict[int, Vec3]
-    stamps_sec: Dict[int, float]
+    # Keys are marker names (str) in configurable-layout mode, or marker
+    # indices (int) in the legacy fixed square mode.
+    points: Dict[Any, Vec3]
+    stamps_sec: Dict[Any, float]
     last_pose: Optional[Tuple[Vec3, Tuple[float, float, float, float]]] = None
 
 
@@ -230,6 +307,9 @@ class ViconMarkerCalibrationTF(Node):
         self.declare_parameter("rotation_alpha", 0.1)
         self.declare_parameter("translation_deadband_m", 0.003)
         self.declare_parameter("rotation_deadband_deg", 0.8)
+        # Reject SVD registrations whose RMS residual exceeds this (metres);
+        # protects against mislabelled/swapped Vicon markers.
+        self.declare_parameter("max_fit_rms_m", 0.01)
 
         self.world_frame = str(self.get_parameter("world_frame").value)
         self.marker_topic_root = str(
@@ -247,6 +327,9 @@ class ViconMarkerCalibrationTF(Node):
         )
         self.rotation_deadband_rad = max(
             0.0, math.radians(float(self.get_parameter("rotation_deadband_deg").value))
+        )
+        self.max_fit_rms_m = max(
+            0.0, float(self.get_parameter("max_fit_rms_m").value)
         )
 
         config_path = str(self.get_parameter("config_path").value)
@@ -272,15 +355,26 @@ class ViconMarkerCalibrationTF(Node):
         for cam in cameras:
             state = CameraState(config=cam, points={}, stamps_sec={})
             self.cameras[cam.namespace] = state
-            for idx in (1, 2, 3, 4):
-                topic = f"{self.marker_topic_root}/{cam.vicon_object}/Top{idx}"
+
+            if cam.marker_names:
+                # Configurable layout: subscribe to each named marker.
+                marker_keys = list(cam.marker_names)
+            else:
+                # Legacy fixed Top1..Top4 square layout.
+                marker_keys = [1, 2, 3, 4]
+
+            for key in marker_keys:
+                name = key if isinstance(key, str) else f"Top{key}"
+                topic = f"{self.marker_topic_root}/{cam.vicon_object}/{name}"
                 sub = self.create_subscription(
                     PointStamped,
                     topic,
-                    lambda msg, ns=cam.namespace, i=idx: self._on_marker(ns, i, msg),
+                    lambda msg, ns=cam.namespace, k=key: self._on_marker(ns, k, msg),
                     10,
                 )
                 self._subscriptions.append(sub)
+
+        self._publish_extra_frames(cameras)
 
         publish_rate = max(1.0, float(self.get_parameter("publish_rate").value))
         self.timer = self.create_timer(1.0 / publish_rate, self._publish_all)
@@ -330,28 +424,154 @@ class ViconMarkerCalibrationTF(Node):
             oy = float(off.get("y", 0.0))
             oz = float(off.get("z", -0.03925))
 
+            def _vec3(d, default=(0.0, 0.0, 0.0)) -> Vec3:
+                if not isinstance(d, dict):
+                    return default
+                return (
+                    float(d.get("x", default[0])),
+                    float(d.get("y", default[1])),
+                    float(d.get("z", default[2])),
+                )
+
+            markers_cfg = cal.get("markers", {})
+            marker_names: List[str] = []
+            marker_local: Dict[str, Vec3] = {}
+            if isinstance(markers_cfg, dict):
+                for mname, mpos in markers_cfg.items():
+                    if not isinstance(mpos, dict):
+                        continue
+                    marker_names.append(str(mname))
+                    marker_local[str(mname)] = _vec3(mpos)
+
+            extra_frames_cfg = cal.get("extra_frames", {})
+            extra_frames: Dict[str, Vec3] = {}
+            if isinstance(extra_frames_cfg, dict):
+                for fname, fpos in extra_frames_cfg.items():
+                    if isinstance(fpos, dict):
+                        extra_frames[str(fname)] = _vec3(fpos)
+
+            orient_off_cfg = cal.get("orientation_offset", {})
+            orientation_offset_rpy = (0.0, 0.0, 0.0)
+            if isinstance(orient_off_cfg, dict):
+                orientation_offset_rpy = (
+                    math.radians(float(orient_off_cfg.get("roll_deg", 0.0))),
+                    math.radians(float(orient_off_cfg.get("pitch_deg", 0.0))),
+                    math.radians(float(orient_off_cfg.get("yaw_deg", 0.0))),
+                )
+
             out.append(
                 CameraMarkerConfig(
                     namespace=str(ns),
                     frame=frame,
                     vicon_object=vicon_object,
                     offset_xyz=(ox, oy, oz),
+                    marker_names=marker_names,
+                    marker_local=marker_local,
+                    link_offset=_vec3(cal.get("link_offset", {})),
+                    extra_frames=extra_frames,
+                    orientation_offset_rpy=orientation_offset_rpy,
                 )
             )
 
         return out
 
-    def _on_marker(self, ns: str, marker_idx: int, msg: PointStamped):
+    def _publish_extra_frames(self, cameras: List[CameraMarkerConfig]):
+        """
+        Publish extra rigidly attached sensor frames (e.g. a RealSense mounted
+        above the Kinect) as static children of each camera frame. Offsets are
+        body-frame positions, so the child transform is extra - link_offset.
+        """
+        static_transforms: List[TransformStamped] = []
+        for cam in cameras:
+            for frame_name, off in cam.extra_frames.items():
+                msg = TransformStamped()
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.frame_id = cam.frame
+                msg.child_frame_id = frame_name
+                msg.transform.translation.x = off[0] - cam.link_offset[0]
+                msg.transform.translation.y = off[1] - cam.link_offset[1]
+                msg.transform.translation.z = off[2] - cam.link_offset[2]
+                msg.transform.rotation.w = 1.0
+                static_transforms.append(msg)
+
+        if static_transforms:
+            self.static_tf_broadcaster = StaticTransformBroadcaster(self)
+            self.static_tf_broadcaster.sendTransform(static_transforms)
+            names = ", ".join(t.child_frame_id for t in static_transforms)
+            self.get_logger().info(f"Published static sensor frames: {names}")
+
+    def _on_marker(self, ns: str, marker_key, msg: PointStamped):
         state = self.cameras.get(ns)
         if state is None:
             return
 
-        state.points[marker_idx] = (msg.point.x, msg.point.y, msg.point.z)
-        state.stamps_sec[marker_idx] = float(msg.header.stamp.sec) + 1e-9 * float(
+        state.points[marker_key] = (msg.point.x, msg.point.y, msg.point.z)
+        state.stamps_sec[marker_key] = float(msg.header.stamp.sec) + 1e-9 * float(
             msg.header.stamp.nanosec
         )
 
     def _camera_pose_from_markers(
+        self, state: CameraState
+    ) -> Optional[Tuple[Vec3, Tuple[float, float, float, float]]]:
+        if state.config.marker_names:
+            return self._pose_from_umeyama(state)
+        return self._pose_from_geometry(state)
+
+    def _pose_from_umeyama(
+        self, state: CameraState
+    ) -> Optional[Tuple[Vec3, Tuple[float, float, float, float]]]:
+        """
+        Solve the camera body pose from configured marker positions with
+        Kabsch/Umeyama SVD rigid registration, then shift to the camera link
+        origin via the configured body-frame link_offset.
+        """
+        cfg = state.config
+        if len(cfg.marker_names) < 3:
+            return None
+        if not set(cfg.marker_names).issubset(state.points):
+            return None
+
+        now_sec = self.get_clock().now().nanoseconds * 1e-9
+        for name in cfg.marker_names:
+            age = now_sec - state.stamps_sec.get(name, 0.0)
+            if age > self.max_marker_age_sec:
+                return None
+
+        local_pts = [cfg.marker_local[name] for name in cfg.marker_names]
+        world_pts = [state.points[name] for name in cfg.marker_names]
+
+        r, t, rms = umeyama(local_pts, world_pts)
+        if self.max_fit_rms_m > 0.0 and rms > self.max_fit_rms_m:
+            pair_report = ", ".join(
+                f"{a}-{b}: local={v_norm(v_sub(cfg.marker_local[a], cfg.marker_local[b])) * 1000.0:.1f}mm "
+                f"world={v_norm(v_sub(state.points[a], state.points[b])) * 1000.0:.1f}mm"
+                for idx_a, a in enumerate(cfg.marker_names)
+                for b in cfg.marker_names[idx_a + 1 :]
+            )
+            self.get_logger().warning(
+                f"{cfg.namespace}: marker registration RMS {rms * 1000.0:.1f} mm "
+                f"exceeds max_fit_rms_m ({self.max_fit_rms_m * 1000.0:.1f} mm); "
+                f"pairwise distances ({pair_report}); "
+                "a large, fluctuating mismatch usually means Vicon is swapping "
+                "marker labels between frames rather than a config error",
+                throttle_duration_sec=2.0,
+            )
+            return None
+
+        # Apply the fixed boresight correction (mounting-tolerance offset)
+        # in the body frame before computing the final link pose.
+        roll_off, pitch_off, yaw_off = cfg.orientation_offset_rpy
+        if roll_off or pitch_off or yaw_off:
+            r_off = np.asarray(rpy_to_rot_matrix(roll_off, pitch_off, yaw_off))
+            r = r @ r_off
+
+        # Camera link origin = body pose composed with the body-frame offset.
+        link_world = r @ np.asarray(cfg.link_offset, dtype=np.float64) + t
+        translation = (float(link_world[0]), float(link_world[1]), float(link_world[2]))
+        quat = rot_matrix_to_quat(r.tolist())
+        return translation, quat
+
+    def _pose_from_geometry(
         self, state: CameraState
     ) -> Optional[Tuple[Vec3, Tuple[float, float, float, float]]]:
         # Need all 4 square-defining markers.

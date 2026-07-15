@@ -1496,16 +1496,16 @@ private:
     stIrOpt.child_frame_id = baseNameTF + K2_TF_IR_OPT_FRAME;
     stIrOpt.header.frame_id = baseNameTF + K2_TF_RGB_OPT_FRAME;
 
+    // StaticTransformBroadcaster publishes latched (transient_local): late
+    // subscribers receive the transforms on join, so a single send is
+    // enough. Keep the thread alive only to keep the broadcaster's
+    // publisher registered while the bridge runs.
+    broadcaster.sendTransform(stColorOpt);
+    broadcaster.sendTransform(stIrOpt);
+
     while (running)
     {
-      now = this->get_clock()->now();
-      stColorOpt.header.stamp = now;
-      stIrOpt.header.stamp = now;
-
-      broadcaster.sendTransform(stColorOpt);
-      broadcaster.sendTransform(stIrOpt);
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   }
 
