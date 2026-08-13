@@ -144,11 +144,18 @@ def launch_setup(context, *args, **kwargs):
     pc_filter_min_dist = float(LaunchConfiguration("point_cloud_filter_min_distance").perform(context))
     pc_filter_max_dist = float(LaunchConfiguration("point_cloud_filter_max_distance").perform(context))
 
+    launch_point_clouds = LaunchConfiguration("launch_point_clouds").perform(context).lower() in ("true", "1", "yes")
+    launch_pc_filter = LaunchConfiguration("launch_point_cloud_filter").perform(context).lower() in ("true", "1", "yes")
+
     pc_res_arg = LaunchConfiguration("point_cloud_resolution").perform(context)
     pc_res_list = [r.strip() for r in pc_res_arg.split(",") if r.strip() in ("sd", "qhd")]
     if not pc_res_list:
         pc_res_list = ["qhd"]
-    has_passthrough_exec = _has_pcl_passthrough_executable()
+    if not launch_point_clouds:
+        pc_res_list = []
+    # The passthrough filter is a heavy extra hop; only spawn it when both
+    # explicitly requested and the executable is available.
+    has_passthrough_exec = launch_pc_filter and _has_pcl_passthrough_executable()
 
     bridge_common = {
         "publish_tf": True,
@@ -292,6 +299,26 @@ def generate_launch_description():
             "launch_rviz",
             default_value="true",
             description="Launch RViz after sensor nodes.",
+        ),
+        DeclareLaunchArgument(
+            "launch_point_clouds",
+            default_value="true",
+            description=(
+                "Spawn point_cloud_xyzrgb (+ passthrough filter) nodes per "
+                "camera. These are cheap themselves, but the qhd subscription "
+                "forces the bridge to run CPU depth registration + colour "
+                "remap continuously. Set false during recording sessions "
+                "where you don't need live point clouds."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "launch_point_cloud_filter",
+            default_value="false",
+            description=(
+                "Spawn the pcl_ros passthrough (distance-crop) filter per "
+                "point-cloud stream. Off by default: it is a heavy extra "
+                "DDS hop. Only takes effect when launch_point_clouds is true."
+            ),
         ),
         DeclareLaunchArgument(
             "point_cloud_resolution",

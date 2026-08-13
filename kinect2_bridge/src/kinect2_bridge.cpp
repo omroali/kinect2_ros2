@@ -968,8 +968,10 @@ private:
     setThreadName("Worker" + std::to_string(id));
     const size_t checkFirst = id % 2;
     bool processedFrame = false;
-    int oldNice = nice(0);
-    oldNice = nice(19 - oldNice);
+    // NOTE: upstream iai_kinect2 set these worker threads to nice(19)
+    // (lowest CPU priority) to stay polite on shared robots. On this
+    // dedicated recording rig that made the frame pipeline yield to
+    // everything else (RViz, desktop, ...), so it was removed.
 
     while (running)
     {
