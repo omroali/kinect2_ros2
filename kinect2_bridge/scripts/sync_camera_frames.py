@@ -43,7 +43,7 @@ python3 sync_camera_frames.py \
 Output CSV columns
 ------------------
   sync_idx          Row index (0-based) in the synced output
-  cam_N_frame_idx   Frame index in camera N's .mp4 video
+  cam_N_frame_idx   Frame index in camera N's video file
   cam_N_ts_ns       ROS timestamp of that frame in nanoseconds
   cam_N_offset_ms   Offset in ms from the reference camera (cam_0 = 0.0)
 
@@ -56,7 +56,10 @@ Loading in ML code
   import cv2
 
   sync  = pd.read_csv('synced_frames.csv')
-  caps  = [cv2.VideoCapture(f'kinect2_{i+1}_qhd_image_color_rect.mp4')
+  # NOTE: these stems are stale -- the recorder writes
+  # kinect2_<n>_qhd_image_color_rect_compressed.mkv for the default
+  # `mode: compressed` config. Check <session>/videos/ for the real names.
+  caps  = [cv2.VideoCapture(f'kinect2_{i+1}_qhd_image_color_rect_compressed.mkv')
            for i in range(4)]
 
   for _, row in sync.iterrows():
